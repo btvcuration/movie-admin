@@ -92,11 +92,12 @@
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
 
-            // Cache handling safely
+            // [CRASH FIX] Safely initialize data state
             const [data, setData] = useState(() => {
                 try {
                     const savedData = localStorage.getItem('admin_data_cache');
-                    return savedData ? JSON.parse(savedData) : [];
+                    const parsed = savedData ? JSON.parse(savedData) : [];
+                    return Array.isArray(parsed) ? parsed : []; // Ensure it's always an array
                 } catch (e) { return []; }
             });
             
@@ -163,11 +164,11 @@
                         showToast('최신 데이터로 동기화되었습니다.');
                     } else if (json.error) {
                         console.error(json.error);
-                        if(data.length === 0) showToast('데이터 불러오기 실패');
+                        if(!Array.isArray(data) || data.length === 0) showToast('데이터 불러오기 실패');
                     }
                 } catch (e) { 
                     console.error(e); 
-                    if(data.length === 0) showToast('연동 오류 (URL 확인 필요)'); 
+                    if(!Array.isArray(data) || data.length === 0) showToast('연동 오류 (URL 확인 필요)'); 
                 }
                 setIsFetching(false);
             };
@@ -198,12 +199,11 @@
                     }
                     await fetch(googleScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...item, syncAction: action }) });
                     showToast(action === 'DELETE' ? '삭제 요청 전송됨' : '저장 요청 전송됨');
-                    // Background sync without blocking
                     setTimeout(fetchData, 2000); 
                 } catch (e) { showToast('❌ 연동 실패'); }
             };
 
-            // Optimized Policy Checker
+            // Optimized Policy Checker (Safe check)
             const getCurrentPolicy = useCallback((policies) => {
                 if (!policies || !Array.isArray(policies) || policies.length === 0) return null;
                 return policies.find(p => {
@@ -212,9 +212,9 @@
                 });
             }, [currentDate]);
 
-            // Optimized Stats Calculation
+            // Optimized Stats Calculation (Crash Proof)
             const stats = useMemo(() => {
-                if (!data) return { total: 0, active: 0, categories: {} };
+                if (!Array.isArray(data)) return { total: 0, active: 0, categories: {} };
                 const total = data.length;
                 const active = data.filter(d => getCurrentPolicy(d.pricingPolicy)).length;
                 const categories = data.reduce((acc, cur) => { 
@@ -225,12 +225,14 @@
                 return { total, active, categories };
             }, [data, getCurrentPolicy]);
 
-            // Optimized Active List (Memoized)
+            // Optimized Active List (Safe check)
             const activeList = useMemo(() => {
+                if (!Array.isArray(data)) return [];
                 return data.filter(d => getCurrentPolicy(d.pricingPolicy)).slice(0, 10);
             }, [data, getCurrentPolicy]);
 
             const checkPolicyOverlap = (policies) => {
+                if (!policies || !Array.isArray(policies)) return null;
                 for (let i = 0; i < policies.length; i++) {
                     for (let j = i + 1; j < policies.length; j++) {
                         const p1 = policies[i];
@@ -257,10 +259,10 @@
                 
                 if (currentMode === 'add') {
                     savedItem = { ...formData, id: Date.now(), status: '예정', modifier: user?.email || 'Admin', lastModified: now };
-                    setData([savedItem, ...data]); 
+                    setData(prev => [savedItem, ...prev]); 
                 } else {
                     savedItem = { ...formData, id: selectedId, lastModified: now, modifier: user?.email || 'Admin' };
-                    setData(data.map(d => d.id === selectedId ? savedItem : d)); 
+                    setData(prev => prev.map(d => d.id === selectedId ? savedItem : d)); 
                 }
                 
                 addHistory(actionType, savedItem.title, currentMode === 'add' ? '신규 등록' : '정보 수정');
@@ -358,8 +360,9 @@
                 );
             }
 
-            // Pagination Logic
-            const filteredData = data.filter(d => d.title.includes(searchTerm) || d.cp.includes(searchTerm));
+            // Pagination Logic (Safe check)
+            const safeData = Array.isArray(data) ? data : [];
+            const filteredData = safeData.filter(d => d.title.includes(searchTerm) || d.cp.includes(searchTerm));
             const indexOfLastItem = currentPage * itemsPerPage;
             const indexOfFirstItem = indexOfLastItem - itemsPerPage;
             const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
