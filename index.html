@@ -10,7 +10,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.263.1"></script>
     
-    <!-- 🔥 Firebase SDK -->
+    <!-- 🔥 Firebase SDK (Compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
@@ -35,9 +35,8 @@
 
         // ---------------------------------------------------------
         // 🔑 [설정] API 키 및 URL 기본값
-        // 아래 따옴표("") 안에 값을 넣어두면 설정 창에 자동으로 입력됩니다.
         // ---------------------------------------------------------
-        const DEFAULT_GEMINI_API_KEY = ""; // 예: "AIzaSy..."
+        const DEFAULT_GEMINI_API_KEY = ""; 
         const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvf0C_LDJVF04prdqfZABIhXDIVLOUoh-nPjwiUa4OMDOz7-jeBRlTwwbpIXM_zhTyJg/exec";
 
         // ---------------------------------------------------------
@@ -130,7 +129,12 @@
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
 
-            const [data, setData] = useState([]); 
+            // [Update] Initialize data from LocalStorage (Caching Strategy)
+            const [data, setData] = useState(() => {
+                const savedData = localStorage.getItem('admin_data_cache');
+                return savedData ? JSON.parse(savedData) : [];
+            });
+            
             const [requests, setRequests] = useState([]);
             const [history, setHistory] = useState([]);
             
@@ -144,10 +148,8 @@
             const [validationError, setValidationError] = useState(null);
             const [isFetching, setIsFetching] = useState(false); 
             
-            // [Update] Initialize keys from localStorage OR Default Constants
             const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || DEFAULT_GEMINI_API_KEY);
             const [googleScriptUrl, setGoogleScriptUrl] = useState(() => localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL);
-            
             const [isAiLoading, setIsAiLoading] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
             const [currentDate, setCurrentDate] = useState(getToday());
@@ -160,12 +162,19 @@
             };
             const [formData, setFormData] = useState(initialForm);
 
+            // Save to LocalStorage whenever data changes
+            useEffect(() => {
+                localStorage.setItem('admin_data_cache', JSON.stringify(data));
+            }, [data]);
+
             useEffect(() => {
                 if (auth) {
                     const unsubscribe = auth.onAuthStateChanged((u) => {
                         setUser(u);
                         setIsLoggedIn(!!u);
-                        if(u) fetchData(); 
+                        if(u) {
+                            fetchData(); // Fetch fresh data in background
+                        }
                     });
                     return () => unsubscribe();
                 }
@@ -178,13 +187,17 @@
                     const response = await fetch(googleScriptUrl);
                     const json = await response.json();
                     if (Array.isArray(json)) {
-                        setData(json);
-                        showToast('데이터를 불러왔습니다.');
+                        setData(json); // Update with fresh data
+                        showToast('최신 데이터로 동기화되었습니다.');
                     } else if (json.error) {
                         console.error(json.error);
-                        showToast('데이터 불러오기 실패');
+                        // Fail silently if cache exists, otherwise show error
+                        if(data.length === 0) showToast('데이터 불러오기 실패');
                     }
-                } catch (e) { console.error(e); showToast('연동 오류'); }
+                } catch (e) { 
+                    console.error(e); 
+                    if(data.length === 0) showToast('연동 오류 (URL 확인 필요)'); 
+                }
                 setIsFetching(false);
             };
 
@@ -196,7 +209,6 @@
                 catch (error) { setLoginError("로그인 실패: 정보를 확인하세요."); }
             };
             const handleLogout = () => auth ? auth.signOut() : setIsLoggedIn(false);
-            
             const handleSaveSettings = () => {
                 localStorage.setItem('gemini_api_key', geminiApiKey);
                 localStorage.setItem('google_script_url', googleScriptUrl);
