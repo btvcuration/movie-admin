@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin Pro (Final v3.0)</title>
+    <title>Movie Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -138,14 +138,10 @@
             return `(${diff + 1}일)`; 
         };
 
-        // 🛠️ [LOGIC FIX] 데이터 로드 시 B tv+ 편성일 존재 여부에 따라 Status 자동 동기화
         const normalizeData = (rawData) => {
             if (!Array.isArray(rawData)) return [];
             return rawData.map(item => {
-                // 날짜 필드 정규화
                 const btvActual = formatDateStandard(item.btvPlusActualDate);
-                
-                // B tv+ 편성일이 있으면 무조건 Y, 없으면 기존 값 유지하거나 N
                 const autoStatus = (btvActual && btvActual.length > 0) ? 'Y' : (item.btvPlusStatus || 'N');
 
                 return {
@@ -157,6 +153,7 @@
                     btvPlusStatus: autoStatus,
                     btvPlusActualDate: btvActual,
                     btvPlusAvailableDate: formatDateStandard(item.btvPlusAvailableDate),
+                    remarks: item.remarks || '', // 🛠️ 비고 필드 추가
                     pricingPolicy: Array.isArray(item.pricingPolicy) 
                         ? item.pricingPolicy.map(p => ({
                             ...p,
@@ -194,7 +191,6 @@
             
             const [requests, setRequests] = useState([]);
             
-            // 🛠️ [LOGIC FIX] History State도 로컬 스토리지 연동
             const [history, setHistory] = useState(() => {
                 try {
                     const savedHistory = localStorage.getItem('admin_history_cache');
@@ -238,6 +234,7 @@
                 title: '', cp: '', category: '한국영화', 
                 rating: '', boxOffice: '', actors: '', awards: '', prodYear: '', 
                 btvPlusStatus: 'N', btvPlusAvailableDate: '', btvPlusActualDate: '',
+                remarks: '', // 🛠️ 비고 초기값
                 pricingPolicy: [] 
             };
             const [formData, setFormData] = useState(initialForm);
@@ -248,7 +245,6 @@
                 } catch (e) { console.error("Save Error", e); } 
             }, [data]);
 
-            // 🛠️ [LOGIC FIX] History 변경 시 자동 저장
             useEffect(() => {
                 try {
                     localStorage.setItem('admin_history_cache', JSON.stringify(history));
@@ -339,7 +335,20 @@
                 if (!googleScriptUrl) return;
                 try {
                     if (action === 'DELETE') setData(prev => prev.filter(d => d.id !== item.id));
-                    fetch(googleScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...item, syncAction: action }) });
+                    
+                    // 🛠️ [PAYLOAD] 편성 시작일(earliestStartDate) 계산하여 전송 (구글 시트 AV열용)
+                    const earliestStart = getEarliestStartDate(item);
+                    
+                    fetch(googleScriptUrl, { 
+                        method: 'POST', 
+                        mode: 'no-cors', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ 
+                            ...item, 
+                            syncAction: action,
+                            earliestStartDate: earliestStart || '' // 시트 AV열 매핑용 데이터
+                        }) 
+                    });
                     showToast(action === 'DELETE' ? '삭제 요청 전송됨' : '저장 요청 전송됨');
                 } catch (e) { showToast('❌ 전송 실패'); }
             };
@@ -366,24 +375,25 @@
             
             const monthlyStats = useMemo(() => {
                  const safeData = Array.isArray(data) ? data : [];
-                 const last3Months = [];
+                 const last6Months = [];
                  const todayDate = new Date();
-                 for (let i = 2; i >= 0; i--) {
+                 // 🛠️ [CHART] 최근 6개월로 확장
+                 for (let i = 5; i >= 0; i--) {
                      const d = new Date(todayDate.getFullYear(), todayDate.getMonth() - i, 1);
                      const label = `${d.getMonth() + 1}월`;
                      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                     last3Months.push({ label, yearMonth, count: 0 });
+                     last6Months.push({ label, yearMonth, count: 0 });
                  }
 
                  safeData.forEach(d => {
                     const earliestStart = getEarliestStartDate(d);
                     if (earliestStart && earliestStart.length >= 7) {
                         const itemYM = earliestStart.substring(0, 7);
-                        const target = last3Months.find(m => m.yearMonth === itemYM);
+                        const target = last6Months.find(m => m.yearMonth === itemYM);
                         if (target) target.count++;
                     }
                  });
-                 return last3Months;
+                 return last6Months;
             }, [data]);
 
             const newReleaseList = useMemo(() => {
@@ -544,25 +554,25 @@
 
             return (
                 <div className="flex h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
-                    <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'w-20' : 'w-64'} fixed md:relative z-[60] h-full ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+                    {/* 🛠️ [UI FIX] 모바일 하단 안잘리게 h-[100dvh] 적용 */}
+                    <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'w-20' : 'w-64'} fixed md:relative z-[60] h-[100dvh] ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
                         
-                        {/* 헤더 & 🛠️[텍스트 버튼 적용] */}
                         <div className="p-6 border-b flex justify-between items-center h-20 shrink-0">
                             {!isSidebarCollapsed ? (
                                 <div className="flex items-center justify-between w-full">
-                                    <span className="text-xl font-bold text-indigo-900">Admin</span>
+                                    <span className="text-xl font-bold text-indigo-900">Movie Admin</span>
                                     <button onClick={()=>setIsSidebarCollapsed(true)} className="hidden md:block text-xs font-bold text-gray-400 hover:text-indigo-600">◀ 접기</button>
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-center w-full gap-2">
-                                    <span className="text-xl font-bold text-indigo-900">A</span>
+                                    <span className="text-xl font-bold text-indigo-900">M</span>
                                     <button onClick={()=>setIsSidebarCollapsed(false)} className="hidden md:block text-xs font-bold text-gray-400 hover:text-indigo-600">▶</button>
                                 </div>
                             )}
-                            {/* 🛠️[모바일 닫기 텍스트] */}
                             <button className="md:hidden text-sm font-bold text-gray-500 bg-gray-100 px-3 py-1 rounded" onClick={()=>setIsSidebarOpen(false)}>닫기</button>
                         </div>
 
+                        {/* 🛠️ 메뉴 영역 overflow auto */}
                         <nav className="p-2 space-y-1 flex-1 overflow-y-auto">
                             {['dashboard', 'management', 'requests', 'history'].map(tab => (
                                 <button key={tab} onClick={()=>{setActiveTab(tab); setIsSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium capitalize transition-colors ${activeTab===tab?'bg-indigo-50 text-indigo-700':'hover:bg-gray-50 text-gray-600'} ${isSidebarCollapsed ? 'justify-center' : ''}`}>
@@ -572,7 +582,8 @@
                             ))}
                         </nav>
 
-                        <div className="p-4 border-t bg-gray-50 shrink-0 space-y-1">
+                        {/* 🛠️ 하단 고정 메뉴 */}
+                        <div className="p-4 border-t bg-gray-50 shrink-0 space-y-1 pb-8 md:pb-4">
                             <button onClick={()=>setIsSettingsOpen(true)} className={`w-full flex items-center gap-2 px-4 py-2 rounded text-sm font-medium hover:bg-gray-200 text-gray-700 ${isSidebarCollapsed ? 'justify-center' : ''}`} title="설정">
                                 <Icon name="Settings" size={16}/> {!isSidebarCollapsed && "설정"}
                             </button>
@@ -617,7 +628,7 @@
                                     </div>
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                         <div className="bg-white p-6 rounded-xl border">
-                                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="BarChart"/> 월별 신규 편성 (최초 오픈 기준)</h3>
+                                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="BarChart"/> 월별 신규 편성 (최근 6개월)</h3>
                                             <div className="flex items-end justify-between h-[250px] pt-4 gap-2 border-b">
                                                 {monthlyStats.map((m, i) => (
                                                     <div key={i} className="flex flex-col items-center flex-1 group relative h-full justify-end">
@@ -828,7 +839,6 @@
                                         <h4 className="font-bold text-lg flex items-center gap-2 mb-4 text-indigo-900"><Icon name="Tv"/> B tv+ 편성 정보</h4>
                                         <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 flex items-center gap-6">
                                             <span className="text-sm font-bold">편성 여부:</span>
-                                            {/* 🛠️ [UI FIX] N 선택 시 날짜 초기화 로직 추가 */}
                                             <div className="flex gap-4">
                                                 <label className="flex items-center gap-1 cursor-pointer">
                                                     <input type="radio" name="btvStatus" checked={formData.btvPlusStatus==='Y'} onChange={()=>setFormData({...formData, btvPlusStatus:'Y'})}/> Y
@@ -866,6 +876,11 @@
                                             <button onClick={()=>addPolicy(pricingTab)} className="w-full py-3 bg-gray-50 text-indigo-600 font-bold text-sm hover:bg-indigo-50 transition border-t">+ 추가</button>
                                         </div>
                                         <div className="mt-4 flex justify-between items-center bg-indigo-50 p-3 rounded text-sm text-indigo-800"><span className="flex gap-1 items-center"><Icon name="Calculator"/> 자동 스케줄링</span><input type="date" className="border p-1 rounded text-xs" onChange={(e)=>applyAutoHoldback(e.target.value, pricingTab)}/></div>
+                                    </section>
+                                    {/* 🛠️ [NEW] 비고란 추가 */}
+                                    <section className="mt-6">
+                                        <h4 className="font-bold text-lg flex items-center gap-2 mb-2 text-gray-700"><Icon name="FileText"/> 비고 (선택)</h4>
+                                        <textarea className="w-full border p-3 rounded-lg bg-gray-50 text-sm h-24 resize-none focus:bg-white transition" placeholder="특이사항이나 메모를 입력하세요 (구글 시트 AW열 저장)" value={formData.remarks} onChange={e=>setFormData({...formData, remarks:e.target.value})}></textarea>
                                     </section>
                                 </div>
                                 <div className="p-6 border-t flex flex-col bg-gray-50 rounded-b-xl shrink-0">
