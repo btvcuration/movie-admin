@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin Pro</title>
+    <title>Movie Admin Pro (Fixed)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -57,34 +57,31 @@
             }
         } catch (e) { console.error("Firebase Init Error:", e); }
 
-        // [AI Fix] Updated Model Name for better compatibility
         const callGemini = async (prompt, apiKey) => {
             if (!apiKey) return { error: "API 키 확인 필요" };
             try {
-                // Changed model to 'gemini-1.5-flash-latest'
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                 });
-                if (!response.ok) { 
-                    const err = await response.json(); 
-                    throw new Error(err.error?.message || `API Error: ${response.status}`); 
-                }
+                if (!response.ok) { const err = await response.json(); throw new Error(err.error?.message || `API Error: ${response.status}`); }
                 const result = await response.json();
                 return { text: result.candidates?.[0]?.content?.parts?.[0]?.text };
             } catch (e) { return { error: e.message }; }
         };
 
+        // [SAFE ICON]
         const Icon = ({ name, size = 16, className, ...props }) => {
-            if (typeof lucide === 'undefined' || !lucide.icons[name]) return null;
-            const [tag, attrs, children] = lucide.icons[name];
-            return React.createElement('svg', { ...attrs, width: size, height: size, className: `lucide lucide-${name.toLowerCase()} ${className || ''}`, ...props }, 
-                children.map(([t, a], i) => React.createElement(t, { key: i, ...a })));
+            try {
+                if (typeof lucide === 'undefined' || !lucide.icons || !lucide.icons[name]) return null;
+                const [tag, attrs, children] = lucide.icons[name];
+                return React.createElement('svg', { ...attrs, width: size, height: size, className: `lucide lucide-${name.toLowerCase()} ${className || ''}`, ...props }, 
+                    children.map(([t, a], i) => React.createElement(t, { key: i, ...a })));
+            } catch (e) { return null; }
         };
 
-        // --- Helper Functions ---
         const getToday = () => {
             const now = new Date();
-            const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+            const kst = new Date(now.getTime() + (9 * 60 * 60 * 1000));
             return kst.toISOString().split('T')[0];
         };
         const addDays = (d, n) => { if(!d) return ''; const date = new Date(d); date.setDate(date.getDate() + n); return date.toISOString().split('T')[0]; };
@@ -102,16 +99,16 @@
             return `(${diff + 1}일)`; 
         };
 
-        // [Safe Data Normalizer] Prevents white screen crashes
+        // [CRASH FIX] Strong Data Normalizer
         const normalizeData = (rawData) => {
             if (!Array.isArray(rawData)) return [];
             return rawData.map(item => ({
                 ...item,
                 id: item.id || Date.now() + Math.random(),
-                title: item.title || '제목 없음',
+                title: item.title || '(제목 없음)',
                 cp: item.cp || '-',
                 category: item.category || '기타',
-                // Ensure pricingPolicy is always an array
+                // Ensure array
                 pricingPolicy: Array.isArray(item.pricingPolicy) ? item.pricingPolicy : []
             }));
         };
@@ -123,23 +120,20 @@
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
 
-            // [CRASH FIX] Load with Normalization
+            // Data State with Safety
             const [data, setData] = useState(() => {
                 try { 
                     const saved = localStorage.getItem('admin_data_cache');
                     if (!saved || saved === "undefined" || saved === "null") return [];
                     const parsed = JSON.parse(saved);
                     return normalizeData(parsed); 
-                } catch (e) { 
-                    console.error("Cache corrupted, resetting...", e);
-                    localStorage.removeItem('admin_data_cache');
-                    return []; 
-                }
+                } catch { return []; }
             });
             
             const [requests, setRequests] = useState([]);
             const [history, setHistory] = useState([]);
             
+            // UI State
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -149,6 +143,7 @@
             const [pricingTab, setPricingTab] = useState('RENTAL');
             
             const [managementFilter, setManagementFilter] = useState('ALL');
+            const [filterCategory, setFilterCategory] = useState('ALL');
             const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'desc' }); 
             
             const [toastMessage, setToastMessage] = useState(null);
@@ -161,7 +156,9 @@
             
             const [searchTerm, setSearchTerm] = useState('');
             const currentDate = getToday();
-            
+            const [currentPage, setCurrentPage] = useState(1);
+            const itemsPerPage = 20;
+
             const CP_LIST = [ "CJ ENM", "롯데 엔터테인먼트", "쇼박스", "NEW", "콘텐츠판다", "케이티알파", "스튜디오산타클로스", "이놀미디어", "나인플래너스", "소니픽쳐스", "유니버설", "워너브라더스", "디즈니", "파라마운트", "더쿱분배", "엣나인필름", "영화사 진진", "티캐스트" ];
             const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화"];
             
@@ -180,6 +177,7 @@
                 } catch (e) { console.error("Save Error", e); } 
             }, [data]);
 
+            // Auth
             useEffect(() => {
                 if (auth) {
                     const unsubscribe = auth.onAuthStateChanged((u) => {
@@ -189,58 +187,9 @@
                 }
             }, []);
 
-            // Pagination
-            const [currentPage, setCurrentPage] = useState(1);
-            const itemsPerPage = 20;
+            useEffect(() => { setCurrentPage(1); }, [searchTerm, managementFilter, filterCategory, sortConfig]);
 
-            const handleSort = (key) => {
-                let direction = 'asc';
-                if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
-                setSortConfig({ key, direction });
-            };
-
-            const checkIsLive = useCallback((policies) => {
-                if (!policies || !Array.isArray(policies) || policies.length === 0) return false;
-                return policies.some(p => p.startDate && p.endDate && currentDate >= p.startDate && currentDate <= p.endDate);
-            }, [currentDate]);
-
-            // [CRASH FIX] Safe Stats Calculation
-            const stats = useMemo(() => {
-                const safeData = Array.isArray(data) ? data : [];
-                const total = safeData.length;
-                // Filter safely
-                const active = safeData.filter(d => d.pricingPolicy && checkIsLive(d.pricingPolicy)).length;
-                
-                const recentMonths = [];
-                const todayDate = new Date();
-                for (let i = 2; i >= 0; i--) {
-                    const d = new Date(todayDate.getFullYear(), todayDate.getMonth() - i, 1);
-                    const label = `${d.getMonth() + 1}월`;
-                    const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                    recentMonths.push({ label, yearMonth, count: 0 });
-                }
-
-                safeData.forEach(d => {
-                    if (d.pricingPolicy && Array.isArray(d.pricingPolicy) && d.pricingPolicy.length > 0) {
-                        const sorted = [...d.pricingPolicy].sort((a,b) => (a.startDate || '').localeCompare(b.startDate || ''));
-                        const start = sorted[0]?.startDate;
-                        if (start && start.length >= 7) {
-                            const itemYM = start.substring(0, 7);
-                            const target = recentMonths.find(m => m.yearMonth === itemYM);
-                            if (target) target.count++;
-                        }
-                    }
-                });
-
-                const startingToday = safeData.filter(d => {
-                    if (!d.pricingPolicy || !Array.isArray(d.pricingPolicy)) return false;
-                    return d.pricingPolicy.some(p => p.startDate === currentDate);
-                });
-
-                return { total, active, monthly: recentMonths, startingToday };
-            }, [data, checkIsLive, currentDate]);
-
-
+            // Manual Fetch
             const fetchData = async () => {
                 if (!googleScriptUrl) return showToast("설정에서 URL을 확인해주세요.");
                 setIsFetching(true);
@@ -248,7 +197,7 @@
                     const response = await fetch(googleScriptUrl);
                     const json = await response.json();
                     if (Array.isArray(json)) {
-                        // [CRASH FIX] Normalize fetched data
+                        // Normalize incoming data to prevent crashes
                         const cleanData = normalizeData(json);
                         setData(cleanData);
                         showToast('데이터 동기화 완료');
@@ -267,12 +216,20 @@
             };
             const handleLogout = () => auth ? auth.signOut() : setIsLoggedIn(false);
             const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
+            
             const handleSaveSettings = () => {
                 localStorage.setItem('gemini_api_key', geminiApiKey);
                 localStorage.setItem('google_script_url', googleScriptUrl);
                 setIsSettingsOpen(false);
                 showToast('설정 저장됨');
             };
+
+            const handleForceReset = () => {
+                if(confirm("데이터를 강제 초기화하시겠습니까?")) {
+                    localStorage.removeItem('admin_data_cache');
+                    setData([]); window.location.reload();
+                }
+            }
 
             const syncToSheet = async (item, action = 'UPDATE') => {
                 if (!googleScriptUrl) return;
@@ -283,37 +240,78 @@
                 } catch (e) { showToast('❌ 전송 실패'); }
             };
 
-            const handleAiMeta = async () => {
-                if (!formData.title) return alert("타이틀을 입력해주세요.");
-                if (!geminiApiKey) return alert("API 키가 설정되지 않았습니다.");
-                setIsAiLoading(true);
-                const prompt = `영화 '${formData.title}' (배급: ${formData.cp || '미정'})에 대한 상세 정보를 찾아줘.
-                응답은 반드시 아래 JSON 형식으로만 작성해. 설명이나 마크다운 코드블록(\`\`\`)은 절대 포함하지 마.
-                { "rating": "평점 (예: 8.5)", "boxOffice": "관객수 (숫자만)", "actors": "주연배우 (2~3명 콤마로 구분)", "awards": "주요 수상 이력 (없으면 '-')", "prodYear": "제작연도 (YYYY)" }`;
+            // Helper to check Live status
+            const checkIsLive = useCallback((item) => {
+                if (!item || !item.pricingPolicy || !Array.isArray(item.pricingPolicy)) return false;
+                return item.pricingPolicy.some(p => p.startDate && p.endDate && currentDate >= p.startDate && currentDate <= p.endDate);
+            }, [currentDate]);
+
+            // Stats
+            const stats = useMemo(() => {
+                const safeData = Array.isArray(data) ? data : [];
+                const total = safeData.length;
+                const active = safeData.filter(d => checkIsLive(d)).length;
                 
-                const result = await callGemini(prompt, geminiApiKey);
-                if (result.text) {
-                    try {
-                        const jsonStr = result.text.replace(/```json|```/g, '').trim();
-                        const firstBrace = jsonStr.indexOf('{');
-                        const lastBrace = jsonStr.lastIndexOf('}');
-                        if(firstBrace !== -1 && lastBrace !== -1) {
-                            const cleanJson = jsonStr.substring(firstBrace, lastBrace + 1);
-                            const res = JSON.parse(cleanJson);
-                            setFormData(prev => ({ ...prev, ...res }));
-                            showToast("AI 정보 입력 완료 ✨");
-                        } else { throw new Error("No JSON found"); }
-                    } catch (e) { console.error(e); alert("AI 응답 분석 실패: " + result.text); }
-                } else if (result.error) { alert(result.error); }
-                setIsAiLoading(false);
-            };
+                // Stats logic...
+                return { total, active, monthly: [], startingToday: [] }; // Placeholder for safety
+            }, [data, checkIsLive]);
+            
+            // Stats: Monthly & Today (Separated for clarity)
+            const monthlyStats = useMemo(() => {
+                 const safeData = Array.isArray(data) ? data : [];
+                 const last3Months = [];
+                 const todayDate = new Date();
+                 for (let i = 2; i >= 0; i--) {
+                     const d = new Date(todayDate.getFullYear(), todayDate.getMonth() - i, 1);
+                     const label = `${d.getMonth() + 1}월`;
+                     const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                     last3Months.push({ label, yearMonth, count: 0 });
+                 }
 
-            // [CRASH FIX] Safe Policy Check helper
-            const getCurrentPolicy = (policies) => {
-                if (!policies || !Array.isArray(policies) || policies.length === 0) return null;
-                return policies.find(p => p.startDate && p.endDate && currentDate >= p.startDate && currentDate <= p.endDate);
-            };
+                 safeData.forEach(d => {
+                    if (d.pricingPolicy && Array.isArray(d.pricingPolicy) && d.pricingPolicy.length > 0) {
+                        const sorted = [...d.pricingPolicy].sort((a,b) => (a.startDate || '').localeCompare(b.startDate || ''));
+                        const start = sorted[0]?.startDate;
+                        if (start && start.length >= 7) {
+                            const itemYM = start.substring(0, 7);
+                            const target = last3Months.find(m => m.yearMonth === itemYM);
+                            if (target) target.count++;
+                        }
+                    }
+                 });
+                 return last3Months;
+            }, [data]);
 
+            const todayStats = useMemo(() => {
+                const safeData = Array.isArray(data) ? data : [];
+                return safeData.filter(d => {
+                    if (!d.pricingPolicy || !Array.isArray(d.pricingPolicy)) return false;
+                    // Earliest start date is today
+                     const sorted = [...d.pricingPolicy].sort((a,b) => (a.startDate || '').localeCompare(b.startDate || ''));
+                     return sorted[0]?.startDate === currentDate;
+                });
+            }, [data, currentDate]);
+
+            const activeList = useMemo(() => todayStats.slice(0, 10), [todayStats]);
+
+            const handleSort = (key) => {
+                let direction = 'asc';
+                if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+                setSortConfig({ key, direction });
+            };
+            const handleCardClick = (type) => {
+                if (type === 'REQUESTS') setActiveTab('requests');
+                else { setManagementFilter(type); setActiveTab('management'); }
+            };
+            const handleTitleClick = (item) => {
+                setCurrentMode('edit');
+                setSelectedId(item.id);
+                setFormData({ ...item });
+                setIsModalOpen(true);
+                setValidationError(null);
+            };
+            
+            // Form & Save Handlers
             const checkPolicyOverlap = (policies) => {
                 if (!policies || !Array.isArray(policies)) return null;
                 for (let i = 0; i < policies.length; i++) {
@@ -324,11 +322,11 @@
                 }
                 return null;
             };
+
             const handleSave = () => {
                 setValidationError(null);
-                if (!formData.title || !formData.cp) return setValidationError('타이틀, CP는 필수입니다.');
-                const overlapMsg = checkPolicyOverlap(formData.pricingPolicy);
-                if (overlapMsg) return setValidationError(overlapMsg);
+                if (!formData.title || !formData.cp) return setValidationError('필수값 누락');
+                if (checkPolicyOverlap(formData.pricingPolicy)) return setValidationError('정책 기간 중복');
 
                 const now = new Date().toLocaleString();
                 let savedItem;
@@ -343,93 +341,77 @@
                 addHistory(actionType, savedItem.title, currentMode === 'add' ? '신규 등록' : '정보 수정');
                 syncToSheet(savedItem, actionType);
                 setIsModalOpen(false);
+                showToast('저장됨');
             };
             const handleDelete = (item) => {
                 if (confirm(`삭제하시겠습니까?`)) {
                     setData(prev => prev.filter(d => d.id !== item.id)); 
                     addHistory('DELETE', item.title, '타이틀 삭제');
                     syncToSheet(item, 'DELETE');
+                    showToast('삭제됨');
                 }
             };
             const addHistory = (action, target, details) => {
                 const newLog = { id: Date.now(), action, target, details, user: user?.email || 'System', timestamp: new Date().toLocaleString() };
                 setHistory(prev => [newLog, ...prev]);
             };
+            
+            // AI Meta
+            const handleAiMeta = async () => {
+                if (!formData.title) return alert("타이틀 입력 필요");
+                setIsAiLoading(true);
+                const prompt = `영화 '${formData.title}' (배급: ${formData.cp || '미정'}) 상세 정보 JSON: { "rating": "평점", "boxOffice": "관객수", "actors": "주연배우", "awards": "수상내역", "prodYear": "연도" }`;
+                const res = await callGemini(prompt, geminiApiKey);
+                if (res.text) { try { const json = JSON.parse(res.text.match(/\{[\s\S]*\}/)[0]); setFormData(prev => ({ ...prev, ...json })); } catch { alert("AI 오류"); } }
+                setIsAiLoading(false);
+            };
+
+            // Auto Holdback Logic
             const applyAutoHoldback = (baseDate, mode) => {
                 if (!baseDate) return;
                 const existingPolicies = formData.pricingPolicy.filter(p => p.mode !== mode);
                 const cpName = formData.cp || "";
-                const epvodStart = baseDate; const epvodEnd = addDays(baseDate, 27);
-                const pvodStart = addDays(epvodEnd, 1); const pvodEnd = addDays(baseDate, 89); 
-                const rvodStart = addDays(pvodEnd, 1);
-                let newPolicies = [];
-                if (mode === "RENTAL") {
-                    newPolicies = [
-                        { mode: "RENTAL", type: "EPVOD", price: 7000, startDate: epvodStart, endDate: epvodEnd },
-                        { mode: "RENTAL", type: "PVOD", price: 5000, startDate: pvodStart, endDate: pvodEnd },
-                        { mode: "RENTAL", type: "RVOD", price: 2500, startDate: rvodStart, endDate: "9999-12-31" }
-                    ];
-                } else {
-                    newPolicies = [
-                        { mode: "POSSESSION", type: "EPVOD", price: 15000, startDate: epvodStart, endDate: epvodEnd },
-                        { mode: "POSSESSION", type: "PVOD", price: 10000, startDate: pvodStart, endDate: "9999-12-31" }
-                    ];
-                }
-                let newBtvData = {};
+                const epStart = baseDate; const epEnd = addDays(baseDate, 27);
+                const pvStart = addDays(epEnd, 1); const pvEnd = addDays(baseDate, 89); 
+                const rvStart = addDays(pvEnd, 1);
+                let newPol = mode === "RENTAL" 
+                    ? [{ mode: "RENTAL", type: "EPVOD", price: 7000, startDate: epStart, endDate: epEnd }, { mode: "RENTAL", type: "PVOD", price: 5000, startDate: pvStart, endDate: pvEnd }, { mode: "RENTAL", type: "RVOD", price: 2500, startDate: rvStart, endDate: "9999-12-31" }]
+                    : [{ mode: "POSSESSION", type: "EPVOD", price: 15000, startDate: epStart, endDate: epEnd }, { mode: "POSSESSION", type: "PVOD", price: 10000, startDate: pvStart, endDate: "9999-12-31" }];
+                let newBtv = {};
                 if (mode === "RENTAL") { 
-                    let btvBaseDate = cpName.includes("스튜디오산타") ? pvodStart : epvodStart;
-                    let availDate = btvBaseDate;
-                    if (cpName.includes("CJ ENM")) availDate = addMonths(btvBaseDate, 9);
-                    else if (["롯데 엔터", "쇼박스", "콘텐츠판다", "케이티알파", "롯데"].some(c => cpName.includes(c))) availDate = addDays(btvBaseDate, 42);
-                    newBtv = { btvPlusStatus: 'Y', btvPlusAvailableDate: availDate, btvPlusActualDate: getNextTueOrFri(availDate) };
+                    let btvBase = cpName.includes("스튜디오산타") ? pvStart : epStart;
+                    let avail = cpName.includes("CJ ENM") ? addMonths(btvBase, 9) : (["롯데 엔터", "쇼박스", "콘텐츠판다", "케이티알파", "롯데"].some(c => cpName.includes(c)) ? addDays(btvBase, 42) : btvBase);
+                    newBtv = { btvPlusStatus: 'Y', btvPlusAvailableDate: avail, btvPlusActualDate: getNextTueOrFri(avail) };
                 }
-                setFormData(prev => ({ ...prev, ...newBtvData, pricingPolicy: [...existingPolicies, ...newPolicies] }));
+                setFormData(prev => ({ ...prev, ...newBtv, pricingPolicy: [...existingPolicies, ...newPol] }));
             };
+
             const updatePolicy = (i, f, v) => { const p = [...formData.pricingPolicy]; p[i][f] = v; setFormData({ ...formData, pricingPolicy: p }); };
             const addPolicy = (mode) => setFormData({ ...formData, pricingPolicy: [...formData.pricingPolicy, { mode, type: 'RVOD', price: 0, startDate: getToday(), endDate: '9999-12-31' }] });
             const removePolicy = (i) => setFormData({ ...formData, pricingPolicy: formData.pricingPolicy.filter((_, idx) => idx !== i) });
-            
-            const handleCardClick = (type) => {
-                if (type === 'REQUESTS') setActiveTab('requests');
-                else { setManagementFilter(type); setActiveTab('management'); }
-            };
 
-            const handleForceReset = () => {
-                if(confirm("정말로 모든 데이터를 초기화하시겠습니까?")) {
-                    localStorage.removeItem('admin_data_cache');
-                    setData([]); window.location.reload();
-                }
-            }
-
-            // [5) Click to Detail Logic]
-            const handleTitleClick = (item) => {
-                setCurrentMode('edit');
-                setSelectedId(item.id);
-                setFormData({ ...item });
-                setIsModalOpen(true);
-                setValidationError(null);
-            };
-
-            // Filter & Sort Logic (Safe)
-            const filteredData = (Array.isArray(data) ? data : [])
-                .filter(d => d.title.includes(searchTerm) || d.cp.includes(searchTerm))
-                .filter(d => managementFilter === 'ALL' ? true : managementFilter === 'LIVE' ? !!getCurrentPolicy(d.pricingPolicy) : !getCurrentPolicy(d.pricingPolicy))
+            // Safe Filtering & Sorting
+            const safeData = Array.isArray(data) ? data : [];
+            const filteredData = safeData
+                .filter(d => (d.title||'').includes(searchTerm) || (d.cp||'').includes(searchTerm))
+                .filter(d => {
+                    if (managementFilter === 'ALL') return true;
+                    const isLive = checkIsLive(d);
+                    return managementFilter === 'LIVE' ? isLive : !isLive;
+                })
+                .filter(d => filterCategory === 'ALL' ? true : d.category === filterCategory)
                 .sort((a, b) => {
-                    if (sortConfig.key) {
-                        const valA = a[sortConfig.key] || '';
-                        const valB = b[sortConfig.key] || '';
-                        if (sortConfig.key === 'id') return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
-                        return sortConfig.direction === 'asc' ? valA.toString().localeCompare(valB.toString()) : valB.toString().localeCompare(valA.toString());
-                    }
-                    return 0;
+                    const valA = a[sortConfig.key] || '';
+                    const valB = b[sortConfig.key] || '';
+                    if (sortConfig.key === 'id') return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+                    return sortConfig.direction === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
                 });
             const currentItems = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-            if (!isLoggedIn) { /* Login UI */ return (<div className="min-h-screen flex items-center justify-center bg-gray-100"><div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"><h2 className="text-2xl font-bold text-center mb-6">Admin Login</h2><p className="text-center text-gray-500 text-sm mb-6">사전에 승인된 관리자 계정으로만 접속 가능합니다.</p><form onSubmit={handleLogin} className="space-y-4"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} className="w-full border p-3 rounded" placeholder="Email" required/><input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)} className="w-full border p-3 rounded" placeholder="Password" required/><button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700 transition">로그인</button></form></div></div>); }
+            if (!isLoggedIn) return (<div className="min-h-screen flex items-center justify-center bg-gray-100"><div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"><h2 className="text-2xl font-bold text-center mb-6">Admin Login</h2><form onSubmit={handleLogin} className="space-y-4"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} className="w-full border p-3 rounded" placeholder="Email" required/><input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)} className="w-full border p-3 rounded" placeholder="Password" required/><button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700 transition">로그인</button></form></div></div>);
 
             return (
                 <div className="min-h-screen bg-gray-50 flex text-gray-900 font-sans">
-                    {/* Sidebar Omitted */}
                     <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r transform transition-transform duration-300 ${isSidebarOpen?'translate-x-0':'-translate-x-full'} md:translate-x-0 md:static flex flex-col`}>
                         <div className="p-6 border-b flex justify-between items-center"><span className="text-xl font-bold text-indigo-900">Admin</span><button className="md:hidden" onClick={()=>setIsSidebarOpen(false)}><Icon name="X"/></button></div>
                         <nav className="p-4 space-y-1 flex-1">
@@ -454,19 +436,20 @@
                             <div className="space-y-6 animate-in fade-in duration-500">
                                 <header className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">대시보드</h1><span className="text-sm text-gray-500">{getToday()} 기준</span></header>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div onClick={()=>handleCardClick('ALL')} className="bg-white p-5 rounded-xl border card-hover"><div className="text-gray-500 text-sm">전체 타이틀</div><div className="text-3xl font-bold text-gray-900 mt-1">{stats.total}</div></div>
+                                    <div onClick={()=>handleCardClick('ALL')} className="bg-white p-5 rounded-xl border card-hover"><div className="text-gray-500 text-sm">전체</div><div className="text-3xl font-bold text-gray-900 mt-1">{stats.total}</div></div>
                                     <div onClick={()=>handleCardClick('LIVE')} className="bg-white p-5 rounded-xl border border-indigo-100 bg-indigo-50 card-hover"><div className="text-indigo-600 text-sm font-bold">서비스 중 (Live)</div><div className="text-3xl font-bold text-indigo-900 mt-1">{stats.active}</div></div>
                                     <div onClick={()=>handleCardClick('SCHEDULED')} className="bg-white p-5 rounded-xl border card-hover"><div className="text-gray-500 text-sm">대기 중</div><div className="text-3xl font-bold text-gray-700 mt-1">{stats.total - stats.active}</div></div>
                                     <div onClick={()=>handleCardClick('REQUESTS')} className="bg-white p-5 rounded-xl border card-hover"><div className="text-gray-500 text-sm">신규 요청</div><div className="text-3xl font-bold text-red-500 mt-1">{requests.length}</div></div>
                                 </div>
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Monthly Chart */}
                                     <div className="bg-white p-6 rounded-xl border">
-                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="BarChart"/> 월별 타이틀 현황 (최근 3개월)</h3>
+                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="BarChart"/> 월별 편성 (최근 3개월)</h3>
                                         <div className="flex items-end justify-between h-[250px] pt-4 gap-2 border-b">
-                                            {stats.monthly.slice(0, 3).map((m, i) => (
+                                            {monthlyStats.map((m, i) => (
                                                 <div key={i} className="flex flex-col items-center flex-1 group relative h-full justify-end">
                                                     <div className="w-full bg-indigo-100 rounded-t hover:bg-indigo-200 transition relative" 
-                                                         style={{height: m.count > 0 ? `${Math.max((m.count / (Math.max(...stats.monthly.map(x=>x.count))||1)) * 100, 10)}%` : '4px'}}>
+                                                         style={{height: m.count > 0 ? `${Math.max((m.count / (Math.max(...monthlyStats.map(x=>x.count))||1)) * 100, 5)}%` : '4px'}}>
                                                         {m.count > 0 && <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition">{m.count}</span>}
                                                     </div>
                                                     <span className="text-xs text-gray-500 mt-2">{m.label}</span>
@@ -474,15 +457,14 @@
                                             ))}
                                         </div>
                                     </div>
+                                    {/* Today List */}
                                     <div className="bg-white p-6 rounded-xl border flex flex-col">
-                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2 justify-between">
-                                            <span className="flex items-center gap-2"><Icon name="PlayCircle" className="text-green-600"/> 금일 편성 타이틀 ({stats.startingToday.length}건)</span>
-                                        </h3>
+                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2 justify-between"><span className="flex items-center gap-2"><Icon name="PlayCircle" className="text-green-600"/> 금일 편성 타이틀 ({activeList.length}건)</span></h3>
                                         <div className="flex-1 overflow-y-auto pr-2 space-y-2 max-h-[250px]">
-                                            {stats.startingToday.length > 0 ? stats.startingToday.map(d => (
+                                            {activeList.length > 0 ? activeList.map(d => (
                                                 <div key={d.id} onClick={()=>handleTitleClick(d)} className="flex justify-between items-center p-3 bg-green-50 rounded-lg border border-green-100 cursor-pointer hover:bg-green-100 transition">
                                                     <div className="truncate"><div className="font-bold text-sm text-gray-800 truncate">{d.title}</div><div className="text-xs text-gray-500">{d.category} | {d.cp}</div></div>
-                                                    <div className="text-xs font-bold text-green-700 whitespace-nowrap">{getCurrentPolicy(d.pricingPolicy).type}</div>
+                                                    <div className="text-xs font-bold text-green-700 whitespace-nowrap">신규 Open</div>
                                                 </div>
                                             )) : <div className="text-center text-gray-400 py-10">오늘 시작되는 편성이 없습니다.</div>}
                                         </div>
@@ -529,7 +511,7 @@
                                                         <td className="p-4 font-bold text-gray-800 cursor-pointer hover:text-indigo-600" onClick={()=>handleTitleClick(d)}>{d.title}</td>
                                                         <td className="p-4 text-gray-600">{d.cp}</td>
                                                         <td className="p-4">{d.btvPlusStatus === 'Y' ? <span className="text-blue-600 font-bold">Y</span> : <span className="text-gray-300">-</span>}</td>
-                                                        <td className="p-4">{checkIsLive(d.pricingPolicy) ? <span className="text-green-600 font-bold text-xs">● Live</span> : <span className="text-gray-400 text-xs">○ 대기</span>}</td>
+                                                        <td className="p-4">{checkIsLive(d) ? <span className="text-green-600 font-bold text-xs">● Live</span> : <span className="text-gray-400 text-xs">○ 대기</span>}</td>
                                                         <td className="p-4 text-right">
                                                             <button onClick={()=>handleTitleClick(d)} className="px-2 py-1 border rounded mr-2 bg-white hover:bg-gray-50 text-xs">수정</button>
                                                             <button onClick={()=>handleDelete(d)} className="px-2 py-1 border rounded text-red-600 bg-white hover:bg-red-50 text-xs">삭제</button>
@@ -539,7 +521,7 @@
                                             </tbody>
                                         </table>
                                     </div>
-                                    {/* Pagination Logic */}
+                                    {/* Pagination */}
                                     <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
                                         <span className="text-xs text-gray-500">{filteredData.length}개 중 {(currentPage-1)*itemsPerPage + 1}-{Math.min(currentPage*itemsPerPage, filteredData.length)}</span>
                                         <div className="flex gap-2">
@@ -567,7 +549,7 @@
                             </div>
                         </div>
                     )}
-
+                    
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh]">
@@ -576,7 +558,6 @@
                                     <button onClick={()=>setIsModalOpen(false)}><Icon name="X"/></button>
                                 </div>
                                 <div className="p-8 space-y-8 overflow-y-auto">
-                                    {/* Existing Form Sections */}
                                     <section>
                                         <div className="flex justify-between items-end mb-4"><h4 className="font-bold text-lg flex items-center gap-2"><Icon name="Package"/> 기본 정보 & 메타데이터</h4><button onClick={handleAiMeta} className="text-xs ai-button text-white px-3 py-1 rounded-full font-bold flex items-center gap-1">{isAiLoading?<Icon name="Loader2" className="animate-spin"/>:<Icon name="Sparkles"/>} AI 자동채우기</button></div>
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -628,10 +609,7 @@
                                             </table>
                                             <button onClick={()=>addPolicy(pricingTab)} className="w-full py-3 bg-gray-50 text-indigo-600 font-bold text-sm hover:bg-indigo-50 transition border-t">+ 추가</button>
                                         </div>
-                                        <div className="mt-4 flex justify-between items-center bg-indigo-50 p-3 rounded text-sm text-indigo-800">
-                                            <span className="flex gap-1 items-center"><Icon name="Calculator"/> 자동 스케줄링</span>
-                                            <input type="date" className="border p-1 rounded text-xs" onChange={(e)=>applyAutoHoldback(e.target.value, pricingTab)}/>
-                                        </div>
+                                        <div className="mt-4 flex justify-between items-center bg-indigo-50 p-3 rounded text-sm text-indigo-800"><span className="flex gap-1 items-center"><Icon name="Calculator"/> 자동 스케줄링</span><input type="date" className="border p-1 rounded text-xs" onChange={(e)=>applyAutoHoldback(e.target.value, pricingTab)}/></div>
                                     </section>
                                 </div>
                                 <div className="p-6 border-t flex flex-col bg-gray-50 rounded-b-xl shrink-0">
