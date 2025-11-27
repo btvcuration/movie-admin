@@ -35,8 +35,9 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect, useCallback } = React;
 
-        // 🔑 [설정]
-        const DEFAULT_GEMINI_API_KEY = ""; 
+        // 🔑 [설정] 여기에 값을 입력하면 모든 디바이스에서 초기값으로 적용됩니다.
+        // 주의: 배포 시 API 키가 노출되지 않도록 주의하세요. (개인/내부 사용 목적 권장)
+        const DEFAULT_GEMINI_API_KEY = "AIzaSyAQKwA-7cCK1RIeW5YyR4WT7iIpno0-jeQ"; // ⬅️ 여기에 새로 발급받은 Gemini API 키를 넣어주세요!
         const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxvf0C_LDJVF04prdqfZABIhXDIVLOUoh-nPjwiUa4OMDOz7-jeBRlTwwbpIXM_zhTyJg/exec";
 
         // 🔥 Firebase 설정
@@ -95,7 +96,7 @@
         };
 
         const callGemini = async (prompt, apiKey) => {
-            if (!apiKey) return { error: "API 키가 없습니다. [설정] 메뉴에서 키를 입력해주세요." };
+            if (!apiKey) return { error: "API 키가 없습니다. [설정] 메뉴에서 키를 입력하거나 소스코드의 DEFAULT_GEMINI_API_KEY를 수정하세요." };
             try {
                 const modelName = await findBestModel(apiKey);
                 const cleanModelName = modelName.replace('models/', '');
@@ -181,6 +182,17 @@
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
 
+            // 🛠️ [FIXED] 초기화 로직 강화: localStorage 값이 없거나 이상하면 DEFAULT 사용
+            const [geminiApiKey, setGeminiApiKey] = useState(() => {
+                const saved = localStorage.getItem('gemini_api_key');
+                return (saved && saved !== "null" && saved !== "undefined" && saved.trim() !== "") ? saved : DEFAULT_GEMINI_API_KEY;
+            });
+            
+            const [googleScriptUrl, setGoogleScriptUrl] = useState(() => {
+                const saved = localStorage.getItem('google_script_url');
+                return (saved && saved !== "null" && saved !== "undefined" && saved.trim() !== "") ? saved : DEFAULT_GOOGLE_SCRIPT_URL;
+            });
+
             const [data, setData] = useState(() => {
                 try { 
                     const saved = localStorage.getItem('admin_data_cache');
@@ -214,9 +226,6 @@
             const [isAiLoading, setIsAiLoading] = useState(false);
             const [testResult, setTestResult] = useState(null);
 
-            const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || DEFAULT_GEMINI_API_KEY);
-            const [googleScriptUrl, setGoogleScriptUrl] = useState(() => localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL);
-            
             const [searchTerm, setSearchTerm] = useState('');
             const currentDate = getToday();
             
@@ -239,10 +248,14 @@
             const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
 
             const fetchData = async () => {
-                if (!googleScriptUrl) return showToast("설정에서 URL을 확인해주세요.");
+                // URL 유효성 검사 강화
+                const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                
+                if (!targetUrl) return showToast("설정에서 Google Script URL을 확인해주세요.");
+                
                 setIsFetching(true);
                 try {
-                    const response = await fetch(googleScriptUrl);
+                    const response = await fetch(targetUrl);
                     const json = await response.json();
                     if (Array.isArray(json)) {
                         const cleanData = normalizeData(json);
@@ -251,13 +264,16 @@
                     } else if (json.error) {
                         showToast('데이터 불러오기 실패: ' + json.error);
                     }
-                } catch (e) { showToast('연동 오류 (URL 확인)'); } 
+                } catch (e) { showToast('연동 오류 (URL 또는 네트워크 확인)'); } 
                 finally { setIsFetching(false); }
             };
 
             const fetchHistory = async () => {
+                const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                if (!targetUrl) return;
+
                 try {
-                    const response = await fetch(googleScriptUrl + "?type=history");
+                    const response = await fetch(targetUrl + "?type=history");
                     const json = await response.json();
                     if (Array.isArray(json)) {
                         setHistory(json);
@@ -265,13 +281,15 @@
                 } catch (e) { console.error("History Fetch Error", e); }
             };
 
-            // 🛠️ [AUTO SYNC] 초기 진입 시 데이터 자동 동기화
+            // 🛠️ [AUTO SYNC] 초기 진입 시 데이터 자동 동기화 (URL 유효성 체크 포함)
             useEffect(() => {
-                if (googleScriptUrl && googleScriptUrl.startsWith("http")) {
+                // googleScriptUrl 상태가 초기화된 후 실행
+                const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                if (targetUrl) {
                     fetchData();
                     fetchHistory();
                 }
-            }, []); 
+            }, []); // Mount 시 1회 실행
 
             useEffect(() => { 
                 try { 
@@ -292,7 +310,7 @@
 
             // 🛠️ [History] 탭 전환 시 히스토리 Fetch (추가 보완)
             useEffect(() => {
-                if (activeTab === 'history' && googleScriptUrl) {
+                if (activeTab === 'history') {
                     fetchHistory();
                 }
             }, [activeTab]);
@@ -352,12 +370,14 @@
             };
 
             const syncToSheet = async (item, action = 'UPDATE') => {
-                if (!googleScriptUrl) return;
+                const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                if (!targetUrl) return;
+                
                 try {
                     if (action === 'DELETE') setData(prev => prev.filter(d => d.id !== item.id));
                     const earliestStart = getEarliestStartDate(item);
                     
-                    fetch(googleScriptUrl, { 
+                    fetch(targetUrl, { 
                         method: 'POST', 
                         mode: 'no-cors', 
                         headers: { 'Content-Type': 'application/json' }, 
@@ -475,8 +495,9 @@
                 }
             };
             const addHistory = (action, target, details) => {
-                if (googleScriptUrl) {
-                    fetch(googleScriptUrl, {
+                const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                if (targetUrl) {
+                    fetch(targetUrl, {
                         method: 'POST',
                         mode: 'no-cors',
                         headers: { 'Content-Type': 'application/json' },
@@ -805,7 +826,7 @@
                             <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
                                 <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">설정</h3><button onClick={()=>setIsSettingsOpen(false)}><Icon name="X"/></button></div>
                                 <div className="space-y-4">
-                                    <div><label className="block text-xs font-bold mb-1">Gemini API Key</label><input type="password" value={geminiApiKey} onChange={e=>setGeminiApiKey(e.target.value)} className="w-full border p-2 rounded" placeholder="AIza..."/></div>
+                                    <div><label className="block text-xs font-bold mb-1">Gemini API Key (새로 발급받은 키 입력)</label><input type="password" value={geminiApiKey} onChange={e=>setGeminiApiKey(e.target.value)} className="w-full border p-2 rounded" placeholder="AIza..."/></div>
                                     <div><label className="block text-xs font-bold mb-1">Google Script URL</label><input value={googleScriptUrl} onChange={e=>setGoogleScriptUrl(e.target.value)} className="w-full border p-2 rounded"/></div>
                                     
                                     <div className="bg-gray-50 p-3 rounded text-sm">
@@ -825,7 +846,7 @@
                                         <Icon name="CalendarCheck" size={16}/> 📅 오늘 날짜 테스트 데이터 생성
                                     </button>
                                 </div>
-                                <div className="mt-6 flex justify-end gap-2"><button onClick={handleForceReset} className="bg-gray-200 text-gray-600 px-4 py-2 rounded font-bold hover:bg-gray-300">초기화</button><button onClick={handleSaveSettings} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold">저장</button></div>
+                                <div className="mt-6 flex justify-end gap-2"><button onClick={handleForceReset} className="bg-gray-200 text-gray-600 px-4 py-2 rounded font-bold hover:bg-gray-300">데이터 초기화</button><button onClick={handleSaveSettings} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold">저장</button></div>
                             </div>
                         </div>
                     )}
