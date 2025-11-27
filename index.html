@@ -191,7 +191,7 @@
             });
             
             const [requests, setRequests] = useState([]);
-            const [history, setHistory] = useState([]); // 🛠️ History는 이제 서버에서 가져옴
+            const [history, setHistory] = useState([]); 
             
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -251,7 +251,6 @@
 
             useEffect(() => { setCurrentPage(1); }, [searchTerm, managementFilter, filterCategory, sortConfig]);
 
-            // 🛠️ [History] 탭 전환 시 히스토리 Fetch
             useEffect(() => {
                 if (activeTab === 'history' && googleScriptUrl) {
                     fetchHistory();
@@ -275,7 +274,6 @@
                 finally { setIsFetching(false); }
             };
 
-            // 🛠️ [History] 서버에서 이력 가져오기
             const fetchHistory = async () => {
                 try {
                     const response = await fetch(googleScriptUrl + "?type=history");
@@ -462,7 +460,6 @@
                 }
             };
             const addHistory = (action, target, details) => {
-                // 🛠️ [History] 서버로 이력 전송
                 if (googleScriptUrl) {
                     fetch(googleScriptUrl, {
                         method: 'POST',
@@ -487,10 +484,11 @@
 
                 setIsAiLoading(true);
                 
-                // 🛠️ [AI Prompt] 만명 단위 포맷 변경
+                // 🛠️ [AI Prompt Updated] 카테고리 정보 포함
                 const prompt = `
                 영화 정보 검색 요청:
                 - 제목: ${formData.title}
+                - 카테고리: ${formData.category || '정보 없음'} (이 정보를 바탕으로 한국영화/해외영화 등을 구분하여 정확한 데이터를 찾아줘)
                 - 배급사/제작사 힌트: ${formData.cp || '정보 없음'}
 
                 위 영화에 대한 다음 정보를 아래의 JSON 포맷으로만 정확하게 출력해. 설명이나 마크다운 없이 순수 JSON만 줘.
