@@ -496,54 +496,71 @@
                 }
             };
             
-            // 🛠️ [변경] API Key 파라미터 제거
-            const handleAiMeta = async () => {
-                if (!formData.title) return alert("타이틀을 먼저 입력해주세요.");
-                
-                // 설정값 검증 (Key 체크는 제거됨)
-                const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
-                if (!scriptUrl) return alert("설정(좌측 하단)에서 Google Script URL을 입력해주세요.");
-
-                setIsAiLoading(true);
-                
-                const prompt = `
-                영화 정보 검색 요청:
-                - 제목: ${formData.title}
-                - 카테고리: ${formData.category || '정보 없음'} (이 정보를 바탕으로 한국영화/해외영화 등을 구분하여 정확한 데이터를 찾아줘)
-
-                위 영화에 대한 다음 정보를 아래의 JSON 포맷으로만 정확하게 출력해. 설명이나 마크다운 없이 순수 JSON만 줘.
-                정보가 없으면 빈 문자열("")로 채워.
-
-                {
-                    "rating": "네이버/다음/IMDb 중 높은 평점 (예: 8.5)",
-                    "prodYear": "개봉 연도 4자리 (예: 2019)",
-                    "boxOffice": "한국 관객수 (만명 단위, 소수점 1자리까지, 예: 1,031.3만명)",
-                    "actors": "주연 배우 3명 나열 (예: 송강호, 이선균, 조여정)",
-                    "awards": "가장 대표적인 수상 내역 1개 (예: 칸 영화제 황금종려상)"
-                }`;
-
-                const res = await callGemini(prompt);
-                
-                if (res.error) {
-                    alert(res.error); 
-                } else if (res.text) {
-                    try {
-                        let jsonStr = res.text;
-                        if (jsonStr.includes("```json")) {
-                            jsonStr = jsonStr.split("```json")[1].split("```")[0];
-                        } else if (jsonStr.includes("```")) {
-                            jsonStr = jsonStr.split("```")[1].split("```")[0];
+        // 🛠️ [변경] AI 자동채우기 (엄격 모드 적용)
+                    const handleAiMeta = async () => {
+                        if (!formData.title) return alert("타이틀을 먼저 입력해주세요.");
+                        
+                        const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
+                        if (!scriptUrl) return alert("설정(좌측 하단)에서 Google Script URL을 확인해주세요.");
+        
+                        setIsAiLoading(true);
+                        
+                        // 🔥 프롬프트 강화: 유사 영화 추천 금지 및 실패 시 명확한 에러 코드 반환 요청
+                        const prompt = `
+                        역할: 당신은 깐깐한 영화 데이터베이스 관리자입니다. 거짓 정보를 입력하면 해고됩니다.
+                        
+                        요청: 아래 영화에 대한 정확한 메타데이터를 JSON 포맷으로 찾아주세요.
+                        - 검색 제목: "${formData.title}"
+                        - 카테고리 힌트: "${formData.category || '전체'}" (이 카테고리에 속할 확률이 높음)
+        
+                        [치명적 규칙 - 반드시 지킬 것]
+                        1. 위 '검색 제목'과 정확히 일치하거나, 누가 봐도 해당 영화임이 명확한 경우에만 데이터를 반환하세요.
+                        2. 만약 해당 영화가 실제로 존재하지 않거나, 정보가 너무 적어 불확실하다면 절대 추측(Hallucination)하지 마세요.
+                        3. 이름이 비슷한 다른 영화(예: '코트 스틸링' -> '리얼 스틸') 정보를 가져오지 마세요.
+                        4. 정보를 찾을 수 없다면 오직 아래 JSON만 반환하세요:
+                           {"error": "NOT_FOUND"}
+        
+                        [성공 시 반환 포맷 (JSON)]
+                        {
+                            "rating": "네이버/다음/IMDb 중 높은 평점 (예: 8.5)",
+                            "prodYear": "개봉 연도 4자리 (예: 2019)",
+                            "boxOffice": "한국 관객수 (만명 단위, 소수점 1자리까지, 예: 1,031.3만명)",
+                            "actors": "주연 배우 3명 나열 (예: 송강호, 이선균, 조여정)",
+                            "awards": "가장 대표적인 수상 내역 1개 (예: 칸 영화제 황금종려상)"
+                        }`;
+        
+                        const res = await callGemini(prompt);
+                        
+                        if (res.error) {
+                            alert(res.error); 
+                        } else if (res.text) {
+                            try {
+                                let jsonStr = res.text;
+                                // 마크다운 제거 로직 (```json ... ```)
+                                if (jsonStr.includes("```json")) {
+                                    jsonStr = jsonStr.split("```json")[1].split("```")[0];
+                                } else if (jsonStr.includes("```")) {
+                                    jsonStr = jsonStr.split("```")[1].split("```")[0];
+                                }
+                                
+                                const json = JSON.parse(jsonStr);
+        
+                                // 🔍 AI가 정보를 못 찾겠다고 응답한 경우
+                                if (json.error === "NOT_FOUND") {
+                                    alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}\n\nAI가 정확한 정보를 찾지 못했습니다.\n오타가 없는지 확인하거나 수동으로 입력해주세요.`);
+                                } else {
+                                    // 성공 시 데이터 적용
+                                    setFormData(prev => ({ ...prev, ...json }));
+                                    showToast("AI 데이터 입력 완료!");
+                                }
+                            } catch (e) {
+                                console.error("AI Parse Error:", e);
+                                // JSON 파싱 실패 시에도 못 찾은 것으로 간주
+                                alert("데이터를 분석할 수 없습니다. 직접 입력해주세요.");
+                            }
                         }
-                        const json = JSON.parse(jsonStr);
-                        setFormData(prev => ({ ...prev, ...json }));
-                        showToast("AI 데이터 입력 완료!");
-                    } catch (e) {
-                        console.error("AI Parse Error:", e);
-                        alert("데이터 분석 실패. 다시 시도해주세요.");
-                    }
-                }
-                setIsAiLoading(false);
-            };
+                        setIsAiLoading(false);
+                    };
 
             const applyAutoHoldback = (baseDate, mode) => {
                 if (!baseDate) return;
@@ -937,4 +954,5 @@
     </script>
 </body>
 </html>
+
 
