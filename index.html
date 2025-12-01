@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin</title>
+    <title>Movie Admin (Fixed)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -34,10 +34,8 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect, useCallback } = React;
 
-        // 🔑 [설정] Server-Side Logic URL
         const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzMyF2XbEP5V1ImkatRvGw5FHOh0MLYq0ChqhT_h0eEw2rRwnEi9-WucxYmsIRLI_b7YQ/exec";
 
-        // 🔥 Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyDsuxadED3xkBeGf2X2caD2ZWXG0qaSVqc",
             authDomain: "movie-45532.firebaseapp.com",
@@ -56,7 +54,6 @@
             }
         } catch (e) { console.error("Firebase Init Error:", e); }
 
-        // 🛠️ 날짜 정규화 함수
         const formatDateStandard = (dateStr) => {
             if (!dateStr) return "";
             try {
@@ -78,7 +75,6 @@
             return today.toISOString().split('T')[0]; 
         };
 
-        // 🔥 [변경됨] 프론트엔드에서 Gemini 직접 호출하지 않고 GAS 서버로 요청
         const callGemini = async (prompt) => {
             const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
             if (!scriptUrl) return { error: "설정에서 Google Script URL을 확인해주세요." };
@@ -86,18 +82,11 @@
             try {
                 const targetUrl = `${scriptUrl}?type=ai_search&prompt=${encodeURIComponent(prompt)}`;
                 const response = await fetch(targetUrl);
-                
-                if (!response.ok) {
-                    return { error: `서버 통신 오류 (${response.status})` };
-                }
-
+                if (!response.ok) return { error: `서버 통신 오류 (${response.status})` };
                 const result = await response.json();
                 if (result.error) return { error: result.error };
                 return { text: result.text, modelUsed: 'Server-Side AI' };
-
-            } catch (e) { 
-                return { error: "요청 실패: " + e.message }; 
-            }
+            } catch (e) { return { error: "요청 실패: " + e.message }; }
         };
 
         const Icon = ({ name, size = 16, className, ...props }) => {
@@ -124,31 +113,35 @@
             return `(${diff + 1}일)`; 
         };
 
+        // 🛠️ [수정됨] 데이터 정규화 함수 (필터링 강화)
         const normalizeData = (rawData) => {
             if (!Array.isArray(rawData)) return [];
-            return rawData.map(item => {
-                const btvActual = formatDateStandard(item.btvPlusActualDate);
-                const autoStatus = (btvActual && btvActual.length > 0) ? 'Y' : (item.btvPlusStatus || 'N');
+            return rawData
+                // 빈 데이터(제목 없음 등) 필터링
+                .filter(item => item && item.id && item.title && String(item.title).trim() !== '')
+                .map(item => {
+                    const btvActual = formatDateStandard(item.btvPlusActualDate);
+                    const autoStatus = (btvActual && btvActual.length > 0) ? 'Y' : (item.btvPlusStatus || 'N');
 
-                return {
-                    ...item,
-                    id: item.id || Date.now() + Math.random(),
-                    title: item.title || '(제목 없음)',
-                    cp: item.cp || '-',
-                    category: item.category || '기타',
-                    btvPlusStatus: autoStatus,
-                    btvPlusActualDate: btvActual,
-                    btvPlusAvailableDate: formatDateStandard(item.btvPlusAvailableDate),
-                    remarks: item.remarks || '', 
-                    pricingPolicy: Array.isArray(item.pricingPolicy) 
-                        ? item.pricingPolicy.map(p => ({
-                            ...p,
-                            startDate: formatDateStandard(p.startDate),
-                            endDate: formatDateStandard(p.endDate)
-                        })) 
-                        : []
-                };
-            });
+                    return {
+                        ...item,
+                        id: item.id,
+                        title: item.title,
+                        cp: item.cp || '-',
+                        category: item.category || '기타',
+                        btvPlusStatus: autoStatus,
+                        btvPlusActualDate: btvActual,
+                        btvPlusAvailableDate: formatDateStandard(item.btvPlusAvailableDate),
+                        remarks: item.remarks || '', 
+                        pricingPolicy: Array.isArray(item.pricingPolicy) 
+                            ? item.pricingPolicy.map(p => ({
+                                ...p,
+                                startDate: formatDateStandard(p.startDate),
+                                endDate: formatDateStandard(p.endDate)
+                            })) 
+                            : []
+                    };
+                });
         };
 
         const getEarliestStartDate = (item) => {
@@ -192,8 +185,6 @@
             const [currentMode, setCurrentMode] = useState('add');
             const [selectedId, setSelectedId] = useState(null);
             const [pricingTab, setPricingTab] = useState('RENTAL');
-            
-            // 🔥 [신규] 승인 중인 요청 ID 관리
             const [pendingRequestId, setPendingRequestId] = useState(null);
 
             const [managementFilter, setManagementFilter] = useState('ALL');
@@ -229,19 +220,21 @@
 
             const fetchData = async () => {
                 const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
-                if (!targetUrl) return showToast("설정에서 Google Script URL을 확인해주세요.");
+                if (!targetUrl) return showToast("설정 URL 확인 필요");
+                
                 setIsFetching(true);
                 try {
                     const response = await fetch(targetUrl);
                     const json = await response.json();
                     if (Array.isArray(json)) {
+                        // 여기서 normalizeData 호출 시 빈 데이터 걸러짐
                         const cleanData = normalizeData(json);
                         setData(cleanData);
-                        showToast('데이터 동기화 완료');
+                        showToast('동기화 완료');
                     } else if (json.error) {
-                        showToast('데이터 불러오기 실패: ' + json.error);
+                        showToast('불러오기 실패: ' + json.error);
                     }
-                } catch (e) { showToast('연동 오류 (URL 또는 네트워크 확인)'); } 
+                } catch (e) { showToast('연동 오류'); } 
                 finally { setIsFetching(false); }
             };
 
@@ -252,10 +245,9 @@
                     const response = await fetch(targetUrl + "?type=history");
                     const json = await response.json();
                     if (Array.isArray(json)) setHistory(json);
-                } catch (e) { console.error("History Fetch Error", e); }
+                } catch (e) { console.error("History Error", e); }
             };
 
-            // 🔥 [신규] 요청 목록 가져오기 함수
             const fetchRequests = async () => {
                 const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
                 if (!targetUrl) return;
@@ -263,7 +255,7 @@
                     const response = await fetch(targetUrl + "?type=requests");
                     const json = await response.json();
                     if (Array.isArray(json)) setRequests(json);
-                } catch (e) { console.error("Request Fetch Error", e); }
+                } catch (e) { console.error("Request Error", e); }
             };
 
             useEffect(() => {
@@ -271,7 +263,7 @@
                 if (targetUrl) {
                     fetchData();
                     fetchHistory();
-                    fetchRequests(); // 🔥 추가됨
+                    fetchRequests();
                 }
             }, []); 
 
@@ -280,6 +272,11 @@
                     if (Array.isArray(data)) localStorage.setItem('admin_data_cache', JSON.stringify(data)); 
                 } catch (e) { console.error("Save Error", e); } 
             }, [data]);
+
+            // 🔥 [추가] 데이터 변경 시 페이지 1로 리셋
+            useEffect(() => {
+                setCurrentPage(1);
+            }, [data.length, managementFilter, filterCategory, filterCp, searchTerm]);
 
             useEffect(() => {
                 if (auth) {
@@ -290,9 +287,6 @@
                 }
             }, []);
 
-            useEffect(() => { setCurrentPage(1); }, [searchTerm, managementFilter, filterCategory, filterCp, sortConfig]);
-
-            // 탭 전환 시 데이터 갱신
             useEffect(() => {
                 if (activeTab === 'history') fetchHistory();
                 if (activeTab === 'requests') fetchRequests();
@@ -316,9 +310,10 @@
             };
 
             const handleForceReset = () => {
-                if(confirm("데이터를 강제 초기화하시겠습니까?")) {
+                if(confirm("데이터를 강제 초기화하시겠습니까?\n(화면이 깨질 때 유용합니다)")) {
                     localStorage.removeItem('admin_data_cache');
-                    setData([]); window.location.reload();
+                    setData([]); 
+                    window.location.reload();
                 }
             }
 
@@ -331,16 +326,13 @@
             
             const handleTestConnection = async () => {
                 setTestResult({ loading: true });
-                const res = await callGemini("안녕, 너는 누구니? 짧게 대답해줘.");
-                if (res.error) {
-                    setTestResult({ loading: false, success: false, msg: "❌ 연결 실패", detail: res.error });
-                } else {
-                    setTestResult({ loading: false, success: true, msg: "✅ 서버 연결 성공!", detail: "응답: " + res.text.substring(0, 30) + "..." });
-                }
+                const res = await callGemini("안녕?");
+                if (res.error) setTestResult({ loading: false, success: false, msg: "❌ 연결 실패", detail: res.error });
+                else setTestResult({ loading: false, success: true, msg: "✅ 서버 연결 성공!", detail: "응답: " + res.text.substring(0, 30) + "..." });
             };
 
             const handleCreateTestItem = () => {
-                if(!confirm("오늘 날짜(" + currentDate + ")로 시작하는 테스트 타이틀을 생성하시겠습니까?")) return;
+                if(!confirm("오늘 날짜 테스트 타이틀을 생성하시겠습니까?")) return;
                 const testItem = {
                     ...initialForm, id: Date.now(), title: `[TEST] 신규 타이틀 ${new Date().toLocaleTimeString()}`,
                     cp: 'CJ ENM', category: '한국영화',
@@ -358,8 +350,7 @@
                     if (action === 'DELETE') setData(prev => prev.filter(d => d.id !== item.id));
                     const earliestStart = getEarliestStartDate(item);
                     fetch(targetUrl, { 
-                        method: 'POST', 
-                        mode: 'no-cors', 
+                        method: 'POST', mode: 'no-cors', 
                         headers: { 'Content-Type': 'application/json' }, 
                         body: JSON.stringify({ ...item, syncAction: action, earliestStartDate: earliestStart || '' }) 
                     });
@@ -367,96 +358,6 @@
                 } catch (e) { showToast('❌ 전송 실패'); }
             };
 
-            // 🔥 [신규] 승인 버튼 핸들러: AI가 분석한 JSON 데이터를 폼에 자동 매핑
-            const handleApproveRequest = (req) => {
-                let aiData = {};
-                // 1. Details 컬럼의 데이터가 JSON 형식인지 확인 및 파싱
-                try {
-                    if (req.details && (req.details.startsWith('{') || req.details.startsWith('['))) {
-                        const cleanJson = req.details.replace(/```json|```/g, '').trim();
-                        aiData = JSON.parse(cleanJson);
-                    }
-                } catch (e) { console.log("JSON 파싱 실패 (일반 텍스트로 간주):", e); }
-
-                // 2. 폼 데이터 구성
-                const newForm = {
-                    ...initialForm,
-                    title: aiData.title || req.title || '',
-                    cp: aiData.cp || req.cp || '',
-                    category: aiData.category || req.category || '한국영화',
-                    pricingPolicy: Array.isArray(aiData.pricingPolicy) ? aiData.pricingPolicy : [],
-                    remarks: aiData.remarks || (Object.keys(aiData).length > 0 ? '' : req.details)
-                };
-
-                setFormData(newForm);
-                setCurrentMode('add');
-                setIsModalOpen(true);
-                setPendingRequestId(req.id); // 승인 대상 ID 임시 저장
-                
-                if (Array.isArray(aiData.pricingPolicy) && aiData.pricingPolicy.length > 0) {
-                    showToast("AI 데이터(가격정책 포함)가 자동 입력되었습니다.");
-                } else {
-                    showToast("기본 정보가 입력되었습니다.");
-                }
-            };
-
-            // 🔥 [신규] 반려/삭제 핸들러
-            const handleRejectRequest = async (reqId) => {
-                 if(!confirm("이 요청을 삭제(반려)하시겠습니까?")) return;
-                 const targetUrl = googleScriptUrl;
-                 await fetch(targetUrl, {
-                     method: 'POST', mode: 'no-cors',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ syncAction: "DELETE_REQUEST", requestId: reqId })
-                 });
-                 setRequests(prev => prev.filter(r => r.id !== reqId));
-                 showToast("요청 삭제됨");
-            };
-
-            // 🔥 [수정됨] 저장 핸들러 (요청 승인 건 처리 로직 포함)
-            const handleSave = () => {
-                setValidationError(null);
-                if (!formData.title || !formData.cp) return setValidationError('필수값 누락');
-                if (checkPolicyOverlap(formData.pricingPolicy)) return setValidationError('정책 기간 중복');
-
-                const now = new Date().toLocaleString();
-                let savedItem;
-                let actionType = currentMode === 'add' ? 'CREATE' : 'UPDATE';
-                
-                if (currentMode === 'add') {
-                    savedItem = { ...formData, id: Date.now(), status: '예정', modifier: user?.email || 'Admin', lastModified: now };
-                    setData(prev => [savedItem, ...prev]);
-                } else {
-                    savedItem = { ...formData, id: selectedId, lastModified: now, modifier: user?.email || 'Admin' };
-                    setData(prev => prev.map(d => d.id === selectedId ? savedItem : d));
-                }
-                
-                addHistory(actionType, savedItem.title, currentMode === 'add' ? '신규 등록' : '정보 수정');
-                syncToSheet(savedItem, actionType);
-                
-                // 🚀 [추가된 부분] 요청 관리 탭에서 온 승인 건이라면? -> 요청 목록에서 '완료(DONE)' 처리
-                if (pendingRequestId) {
-                    const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
-                    if (targetUrl) {
-                        fetch(targetUrl, {
-                             method: 'POST', 
-                             mode: 'no-cors',
-                             headers: { 'Content-Type': 'application/json' },
-                             body: JSON.stringify({ syncAction: "COMPLETE_REQUEST", requestId: pendingRequestId })
-                        });
-                    }
-                    setRequests(prev => prev.filter(r => r.id !== pendingRequestId));
-                    setPendingRequestId(null); // 초기화
-                }
-                
-                setIsModalOpen(false);
-                showToast('저장됨');
-            };
-
-            // ... (나머지 헬퍼 함수들: handleDelete, checkIsLive, etc... 기존 유지)
-            
-            // (checkIsLive, checkIsNew, stats, monthlyStats, newReleaseList... 코드 중략 없이 기존 로직 그대로 사용)
-            // 지면 관계상 위쪽의 중복 코드는 생략하지 않고, 핵심 로직은 모두 포함하여 통합합니다.
             const checkIsLive = useCallback((item) => {
                 if (!item || !item.pricingPolicy || !Array.isArray(item.pricingPolicy)) return false;
                 return item.pricingPolicy.some(p => {
@@ -529,6 +430,43 @@
                 return null;
             };
 
+            const handleSave = () => {
+                setValidationError(null);
+                if (!formData.title || !formData.cp) return setValidationError('필수값 누락');
+                if (checkPolicyOverlap(formData.pricingPolicy)) return setValidationError('정책 기간 중복');
+
+                const now = new Date().toLocaleString();
+                let savedItem;
+                let actionType = currentMode === 'add' ? 'CREATE' : 'UPDATE';
+                
+                if (currentMode === 'add') {
+                    savedItem = { ...formData, id: Date.now(), status: '예정', modifier: user?.email || 'Admin', lastModified: now };
+                    setData(prev => [savedItem, ...prev]);
+                } else {
+                    savedItem = { ...formData, id: selectedId, lastModified: now, modifier: user?.email || 'Admin' };
+                    setData(prev => prev.map(d => d.id === selectedId ? savedItem : d));
+                }
+                
+                addHistory(actionType, savedItem.title, currentMode === 'add' ? '신규 등록' : '정보 수정');
+                syncToSheet(savedItem, actionType);
+                
+                if (pendingRequestId) {
+                    const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
+                    if (targetUrl) {
+                        fetch(targetUrl, {
+                             method: 'POST', mode: 'no-cors',
+                             headers: { 'Content-Type': 'application/json' },
+                             body: JSON.stringify({ syncAction: "COMPLETE_REQUEST", requestId: pendingRequestId })
+                        });
+                    }
+                    setRequests(prev => prev.filter(r => r.id !== pendingRequestId));
+                    setPendingRequestId(null);
+                }
+                
+                setIsModalOpen(false);
+                showToast('저장됨');
+            };
+
             const handleDelete = (item) => {
                 if (confirm(`삭제하시겠습니까?`)) {
                     setData(prev => prev.filter(d => d.id !== item.id)); 
@@ -551,7 +489,7 @@
             const handleAiMeta = async () => {
                 if (!formData.title) return alert("타이틀을 먼저 입력해주세요.");
                 const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
-                if (!scriptUrl) return alert("설정(좌측 하단)에서 Google Script URL을 확인해주세요.");
+                if (!scriptUrl) return alert("설정 확인 필요");
                 setIsAiLoading(true);
                 
                 const prompt = `
@@ -586,17 +524,56 @@
                         else if (jsonStr.includes("```")) jsonStr = jsonStr.split("```")[1].split("```")[0];
                         const json = JSON.parse(jsonStr);
                         if (json.error === "NOT_FOUND") {
-                            alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}\nAI가 정보를 찾지 못했습니다.`);
+                            alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}`);
                         } else {
                             setFormData(prev => ({ ...prev, ...json }));
                             showToast("AI 데이터 입력 완료!");
                         }
                     } catch (e) {
                         console.error("AI Parse Error:", e);
-                        alert("데이터 분석 실패. 직접 입력해주세요.");
+                        alert("데이터 분석 실패.");
                     }
                 }
                 setIsAiLoading(false);
+            };
+
+            const handleApproveRequest = (req) => {
+                let aiData = {};
+                try {
+                    if (req.details && (req.details.startsWith('{') || req.details.startsWith('['))) {
+                        const cleanJson = req.details.replace(/```json|```/g, '').trim();
+                        aiData = JSON.parse(cleanJson);
+                    }
+                } catch (e) { console.log("JSON Parsing Fail:", e); }
+
+                const newForm = {
+                    ...initialForm,
+                    title: aiData.title || req.title || '',
+                    cp: aiData.cp || req.cp || '',
+                    category: aiData.category || req.category || '한국영화',
+                    pricingPolicy: Array.isArray(aiData.pricingPolicy) ? aiData.pricingPolicy : [],
+                    remarks: aiData.remarks || (Object.keys(aiData).length > 0 ? '' : req.details)
+                };
+
+                setFormData(newForm);
+                setCurrentMode('add');
+                setIsModalOpen(true);
+                setPendingRequestId(req.id);
+                
+                if (Array.isArray(aiData.pricingPolicy) && aiData.pricingPolicy.length > 0) showToast("AI 데이터 자동 입력됨");
+                else showToast("기본 정보 입력됨");
+            };
+
+            const handleRejectRequest = async (reqId) => {
+                 if(!confirm("이 요청을 삭제(반려)하시겠습니까?")) return;
+                 const targetUrl = googleScriptUrl;
+                 await fetch(targetUrl, {
+                     method: 'POST', mode: 'no-cors',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ syncAction: "DELETE_REQUEST", requestId: reqId })
+                 });
+                 setRequests(prev => prev.filter(r => r.id !== reqId));
+                 showToast("요청 삭제됨");
             };
 
             const applyAutoHoldback = (baseDate, mode) => {
@@ -622,11 +599,31 @@
             const addPolicy = (mode) => setFormData({ ...formData, pricingPolicy: [...formData.pricingPolicy, { mode, type: 'RVOD', price: 0, startDate: getToday(), endDate: '9999-12-31' }] });
             const removePolicy = (i) => setFormData({ ...formData, pricingPolicy: formData.pricingPolicy.filter((_, idx) => idx !== i) });
 
+            const safeData = Array.isArray(data) ? data : [];
+            const filteredData = safeData
+                .filter(d => (d.title||'').includes(searchTerm) || (d.cp||'').includes(searchTerm))
+                .filter(d => {
+                    if (managementFilter === 'ALL') return true;
+                    const isLive = checkIsLive(d);
+                    return managementFilter === 'LIVE' ? isLive : !isLive;
+                })
+                .filter(d => filterCategory === 'ALL' ? true : d.category === filterCategory)
+                .filter(d => filterCp === 'ALL' ? true : d.cp === filterCp)
+                .sort((a, b) => {
+                    const valA = a[sortConfig.key] || '';
+                    const valB = b[sortConfig.key] || '';
+                    if (sortConfig.key === 'id') return sortConfig.direction === 'asc' ? valA - valB : valB - valA;
+                    return sortConfig.direction === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+                });
+            const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+            const currentItems = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
             if (!isLoggedIn) return (<div className="min-h-screen flex items-center justify-center bg-gray-100"><div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md"><h2 className="text-2xl font-bold text-center mb-6">Admin Login</h2><form onSubmit={handleLogin} className="space-y-4"><input type="email" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} className="w-full border p-3 rounded" placeholder="Email" required/><input type="password" value={loginPw} onChange={e=>setLoginPw(e.target.value)} className="w-full border p-3 rounded" placeholder="Password" required/><button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700 transition">로그인</button></form></div></div>);
 
             return (
                 <div className="flex h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
                     <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'w-20' : 'w-64'} fixed md:relative z-[60] h-[100dvh] ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+                        {/* Sidebar Content (Same as before) */}
                         <div className="p-6 border-b flex justify-between items-center h-20 shrink-0">
                             {!isSidebarCollapsed ? (
                                 <div className="flex items-center justify-between w-full">
@@ -668,6 +665,7 @@
                     {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-[55] md:hidden" onClick={()=>setIsSidebarOpen(false)}></div>}
 
                     <main className="flex-1 h-full overflow-hidden flex flex-col w-full relative">
+                        {/* Mobile Header */}
                         <div className="md:hidden p-4 border-b flex items-center bg-white shrink-0 justify-between">
                             <div className="flex items-center gap-3">
                                 <button onClick={()=>setIsSidebarOpen(true)}><Icon name="Menu"/></button>
@@ -677,6 +675,7 @@
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-4 md:p-8">
+                            {/* Dashboard Tab */}
                             {activeTab === 'dashboard' && (
                                 <div className="space-y-6 animate-in fade-in duration-500 pb-20">
                                     <header className="flex justify-between items-center mb-6">
@@ -722,6 +721,7 @@
                                 </div>
                             )}
 
+                            {/* Management Tab */}
                             {activeTab === 'management' && (
                                 <div className="pb-20">
                                     <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -800,6 +800,7 @@
                                 </div>
                             )}
 
+                            {/* Requests Tab */}
                             {activeTab === 'requests' && (
                                 <div className="animate-in fade-in duration-500 pb-20">
                                     <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">CP 요청 관리 <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">Gmail 연동됨</span></h1>
@@ -844,6 +845,7 @@
                                 </div>
                             )}
 
+                            {/* History Tab */}
                             {activeTab === 'history' && (
                                 <div className="animate-in fade-in duration-500">
                                     <h1 className="text-2xl font-bold mb-6">작업 이력</h1>
@@ -882,6 +884,7 @@
                         </div>
                     </main>
 
+                    {/* Settings Modal */}
                     {isSettingsOpen && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
                             <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
@@ -909,6 +912,7 @@
                         </div>
                     )}
                     
+                    {/* Add/Edit Modal */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
                             <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh] relative overflow-hidden">
