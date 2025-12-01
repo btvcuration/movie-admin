@@ -510,7 +510,12 @@
                     const res = await response.json();
                     
                     if (res.error) {
-                        alert("Server Error: " + res.error); 
+                        // 🛠️ [New] 권한 오류 감지 및 안내 추가
+                        if (res.error.includes("UrlFetchApp") || res.error.includes("권한") || res.error.includes("permission")) {
+                            alert("🚨 [서버 권한 승인 필요]\n\nGoogle Apps Script 백엔드가 외부 API(Gemini)를 호출할 권한이 없습니다.\n\n[해결 방법]\n1. 앱스 스크립트 편집기 열기\n2. 상단 실행(▷) 버튼을 눌러 아무 함수나 실행\n3. '권한 검토' 팝업에서 승인(허용) 처리\n4. 이후 다시 시도해주세요.");
+                        } else {
+                            alert("Server Error: " + res.error); 
+                        }
                     } else if (res.text) {
                         try {
                             let jsonStr = res.text;
