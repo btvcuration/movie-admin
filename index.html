@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin</title>
+    <title>Movie Admin (Server-Side AI)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@0.263.1"></script>
     
-    <!-- 🔥 Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
@@ -35,9 +34,7 @@
     <script type="text/babel">
         const { useState, useMemo, useEffect, useCallback } = React;
 
-        // 🔑 [설정] 여기에 값을 입력하면 모든 디바이스에서 초기값으로 적용됩니다.
-        // 주의: 배포 시 API 키가 노출되지 않도록 주의하세요. (개인/내부 사용 목적 권장)
-        const DEFAULT_GEMINI_API_KEY = "AIzaSyAQKwA-7cCK1RIeW5YyR4WT7iIpno0-jeQ"; // ⬅️ 여기에 새로 발급받은 Gemini API 키를 넣어주세요!
+        // 🔑 [설정] API Key는 이제 서버(Google Apps Script)에만 저장되므로 여기서 제거됨.
         const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxP5yx8oUPO6A_FZARPxTDsK7b97NrKv93bJYXXt916d2ACHC9zQ22xoyp4_Sp0kTByEQ/exec";
 
         // 🔥 Firebase 설정
@@ -81,39 +78,33 @@
             return today.toISOString().split('T')[0]; 
         };
 
-        const findBestModel = async (apiKey) => {
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-                if (!response.ok) return null;
-                const data = await response.json();
-                const models = data.models || [];
-                const flash = models.find(m => m.name.includes('gemini-1.5-flash') && m.supportedGenerationMethods.includes('generateContent'));
-                if (flash) return flash.name;
-                const pro = models.find(m => m.name.includes('gemini-pro') && m.supportedGenerationMethods.includes('generateContent'));
-                if (pro) return pro.name;
-                return 'models/gemini-pro';
-            } catch (e) { return 'models/gemini-pro'; }
-        };
+        // 🔥 [변경됨] 프론트엔드에서 Gemini 직접 호출하지 않고 GAS 서버로 요청
+        const callGemini = async (prompt) => {
+            const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
+            if (!scriptUrl) return { error: "설정에서 Google Script URL을 확인해주세요." };
 
-        const callGemini = async (prompt, apiKey) => {
-            if (!apiKey) return { error: "API 키가 없습니다. [설정] 메뉴에서 키를 입력하거나 소스코드의 DEFAULT_GEMINI_API_KEY를 수정하세요." };
             try {
-                const modelName = await findBestModel(apiKey);
-                const cleanModelName = modelName.replace('models/', '');
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${cleanModelName}:generateContent?key=${apiKey}`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                });
-                if (!response.ok) { 
-                    const err = await response.json(); 
-                    const errMsg = err.error?.message || `API Error (${response.status})`;
-                    if(errMsg.includes("key")) return { error: "⛔ API 키 오류: 키가 만료되었거나 차단되었습니다." };
-                    throw new Error(errMsg); 
+                // GET 요청으로 변경 (CORS 문제 회피 및 GAS doGet 활용)
+                // prompt를 URL 파라미터로 인코딩해서 전송
+                const targetUrl = `${scriptUrl}?type=ai_search&prompt=${encodeURIComponent(prompt)}`;
+                
+                const response = await fetch(targetUrl);
+                
+                if (!response.ok) {
+                    return { error: `서버 통신 오류 (${response.status})` };
                 }
+
                 const result = await response.json();
-                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!text) throw new Error("AI가 응답하지 않았습니다.");
-                return { text, modelUsed: cleanModelName };
-            } catch (e) { return { error: e.message }; }
+                
+                // 서버(Code.gs)에서 보낸 에러 처리
+                if (result.error) return { error: result.error };
+                
+                // 정상 결과 반환
+                return { text: result.text, modelUsed: 'Server-Side AI' };
+
+            } catch (e) { 
+                return { error: "요청 실패: " + e.message }; 
+            }
         };
 
         const Icon = ({ name, size = 16, className, ...props }) => {
@@ -182,11 +173,7 @@
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
 
-            // 🛠️ [FIXED] 초기화 로직 강화: localStorage 값이 없거나 이상하면 DEFAULT 사용
-            const [geminiApiKey, setGeminiApiKey] = useState(() => {
-                const saved = localStorage.getItem('gemini_api_key');
-                return (saved && saved !== "null" && saved !== "undefined" && saved.trim() !== "") ? saved : DEFAULT_GEMINI_API_KEY;
-            });
+            // 🛠️ [변경] API Key 상태 제거됨
             
             const [googleScriptUrl, setGoogleScriptUrl] = useState(() => {
                 const saved = localStorage.getItem('google_script_url');
@@ -244,11 +231,9 @@
             };
             const [formData, setFormData] = useState(initialForm);
 
-            // 🛠️ [API 정의] (useEffect 위로 이동)
             const showToast = (msg) => { setToastMessage(msg); setTimeout(() => setToastMessage(null), 3000); };
 
             const fetchData = async () => {
-                // URL 유효성 검사 강화
                 const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
                 
                 if (!targetUrl) return showToast("설정에서 Google Script URL을 확인해주세요.");
@@ -281,15 +266,13 @@
                 } catch (e) { console.error("History Fetch Error", e); }
             };
 
-            // 🛠️ [AUTO SYNC] 초기 진입 시 데이터 자동 동기화 (URL 유효성 체크 포함)
             useEffect(() => {
-                // googleScriptUrl 상태가 초기화된 후 실행
                 const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
                 if (targetUrl) {
                     fetchData();
                     fetchHistory();
                 }
-            }, []); // Mount 시 1회 실행
+            }, []); 
 
             useEffect(() => { 
                 try { 
@@ -308,7 +291,6 @@
 
             useEffect(() => { setCurrentPage(1); }, [searchTerm, managementFilter, filterCategory, filterCp, sortConfig]);
 
-            // 🛠️ [History] 탭 전환 시 히스토리 Fetch (추가 보완)
             useEffect(() => {
                 if (activeTab === 'history') {
                     fetchHistory();
@@ -324,11 +306,10 @@
             const handleLogout = () => auth ? auth.signOut() : setIsLoggedIn(false);
             
             const handleSaveSettings = () => {
-                localStorage.setItem('gemini_api_key', geminiApiKey);
+                // Key 저장은 더이상 하지 않음
                 localStorage.setItem('google_script_url', googleScriptUrl);
                 setIsSettingsOpen(false);
                 showToast('설정 저장됨');
-                // 설정 저장 후 즉시 데이터 동기화 시도
                 fetchData();
                 fetchHistory();
             };
@@ -341,19 +322,22 @@
             }
 
             const handleFullReset = () => {
-                if(confirm("API 키 및 로컬 저장소를 초기화하시겠습니까?")) {
+                if(confirm("로컬 저장소를 완전히 초기화하시겠습니까?")) {
                     localStorage.clear();
                     window.location.reload();
                 }
             }
             
+            // 🔥 [변경] 테스트 연결 로직 (서버에 Hello 요청)
             const handleTestConnection = async () => {
                 setTestResult({ loading: true });
-                const selectedModel = await findBestModel(geminiApiKey);
-                if (selectedModel) {
-                    setTestResult({ loading: false, success: true, msg: "✅ 스마트 연결 성공!", detail: `감지된 최적 모델: ${selectedModel.replace('models/', '')}` });
+                // 단순 Echo 테스트용 프롬프트 전송
+                const res = await callGemini("안녕, 너는 누구니? 짧게 대답해줘.");
+                
+                if (res.error) {
+                    setTestResult({ loading: false, success: false, msg: "❌ 연결 실패", detail: res.error });
                 } else {
-                    setTestResult({ loading: false, success: false, msg: "❌ 연결 실패", detail: "사용 가능한 Gemini 모델을 찾지 못했습니다." });
+                    setTestResult({ loading: false, success: true, msg: "✅ 서버 연결 성공!", detail: "응답: " + res.text.substring(0, 30) + "..." });
                 }
             };
 
@@ -512,12 +496,13 @@
                 }
             };
             
-            // 🛠️ [FIXED] AI Prompt: CP 제거 및 검색 정확도 개선
+            // 🛠️ [변경] API Key 파라미터 제거
             const handleAiMeta = async () => {
                 if (!formData.title) return alert("타이틀을 먼저 입력해주세요.");
                 
-                const currentKey = geminiApiKey || localStorage.getItem('gemini_api_key');
-                if (!currentKey) return alert("설정(좌측 하단)에서 Gemini API Key를 입력해주세요.");
+                // 설정값 검증 (Key 체크는 제거됨)
+                const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
+                if (!scriptUrl) return alert("설정(좌측 하단)에서 Google Script URL을 입력해주세요.");
 
                 setIsAiLoading(true);
                 
@@ -537,7 +522,7 @@
                     "awards": "가장 대표적인 수상 내역 1개 (예: 칸 영화제 황금종려상)"
                 }`;
 
-                const res = await callGemini(prompt, currentKey);
+                const res = await callGemini(prompt);
                 
                 if (res.error) {
                     alert(res.error); 
@@ -826,13 +811,13 @@
                             <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
                                 <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">설정</h3><button onClick={()=>setIsSettingsOpen(false)}><Icon name="X"/></button></div>
                                 <div className="space-y-4">
-                                    <div><label className="block text-xs font-bold mb-1">Gemini API Key (새로 발급받은 키 입력)</label><input type="password" value={geminiApiKey} onChange={e=>setGeminiApiKey(e.target.value)} className="w-full border p-2 rounded" placeholder="AIza..."/></div>
+                                    {/* 🛠️ API Key 입력창 삭제됨 */}
                                     <div><label className="block text-xs font-bold mb-1">Google Script URL</label><input value={googleScriptUrl} onChange={e=>setGoogleScriptUrl(e.target.value)} className="w-full border p-2 rounded"/></div>
                                     
                                     <div className="bg-gray-50 p-3 rounded text-sm">
                                         <div className="flex justify-between items-center mb-2">
-                                            <span className="font-bold">🔑 키/모델 테스트</span>
-                                            <button onClick={handleTestConnection} className="bg-indigo-600 text-white text-xs px-3 py-1 rounded hover:bg-indigo-700">{testResult?.loading ? '탐색 중...' : '스마트 연결'}</button>
+                                            <span className="font-bold">🔑 서버 연결 테스트</span>
+                                            <button onClick={handleTestConnection} className="bg-indigo-600 text-white text-xs px-3 py-1 rounded hover:bg-indigo-700">{testResult?.loading ? '통신 중...' : '연결 확인'}</button>
                                         </div>
                                         {testResult && (
                                             <div className={`text-xs p-2 rounded ${testResult.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -861,7 +846,7 @@
                                             <Icon name="Sparkles" size={48} className="text-indigo-600 animate-spin"/>
                                         </div>
                                         <h3 className="text-xl font-bold text-gray-800 animate-pulse">AI가 영화 정보를 분석하고 있습니다...</h3>
-                                        <p className="text-gray-500 mt-2 text-sm">잠시만 기다려주세요.</p>
+                                        <p className="text-gray-500 mt-2 text-sm">잠시만 기다려주세요. (서버 통신 중)</p>
                                     </div>
                                 )}
 
@@ -916,7 +901,6 @@
                                                         return (
                                                             <tr key={i}>
                                                                 <td className="p-2"><select className="w-full border p-1.5 rounded" value={p.type} onChange={e=>updatePolicy(i,'type',e.target.value)}><option>SPVOD</option><option>EPVOD</option><option>PVOD</option><option>RVOD</option><option>LIBRARY</option></select></td>
-                                                                {/* 🛠️ 가격 입력: 1000단위 Step 적용 */}
                                                                 <td className="p-2"><input type="number" step="1000" className="w-24 border p-1.5 rounded text-right" value={p.price} onChange={e=>updatePolicy(i,'price',e.target.value)}/></td>
                                                                 <td className="p-2"><input type="date" className="w-full border p-1.5 rounded" value={p.startDate} onChange={e=>updatePolicy(i,'startDate',e.target.value)}/></td>
                                                                 <td className="p-2"><input type="date" className="w-full border p-1.5 rounded" value={p.endDate} onChange={e=>updatePolicy(i,'endDate',e.target.value)}/></td>
@@ -931,7 +915,6 @@
                                         </div>
                                         <div className="mt-4 flex justify-between items-center bg-indigo-50 p-3 rounded text-sm text-indigo-800"><span className="flex gap-1 items-center"><Icon name="Calculator"/> 자동 스케줄링</span><input type="date" className="border p-1 rounded text-xs" onChange={(e)=>applyAutoHoldback(e.target.value, pricingTab)}/></div>
                                     </section>
-                                    {/* 🛠️ [NEW] 비고란 추가 */}
                                     <section className="mt-6">
                                         <h4 className="font-bold text-lg flex items-center gap-2 mb-2 text-gray-700"><Icon name="FileText"/> 비고 (선택)</h4>
                                         <textarea className="w-full border p-3 rounded-lg bg-gray-50 text-sm h-24 resize-none focus:bg-white transition" placeholder="특이사항이나 메모를 입력하세요 (구글 시트 AW열 저장)" value={formData.remarks} onChange={e=>setFormData({...formData, remarks:e.target.value})}></textarea>
