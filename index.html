@@ -308,10 +308,13 @@
                 fetchRequests();
             };
 
+            // 🔥 [수정됨] URL 설정도 함께 초기화되도록 변경
             const handleForceReset = () => {
-                if(confirm("데이터를 강제 초기화하시겠습니까?\n(화면이 깨질 때 유용합니다)")) {
+                if(confirm("데이터와 설정을 모두 강제 초기화하시겠습니까?\n(Google Script URL도 기본값으로 돌아갑니다)")) {
                     localStorage.removeItem('admin_data_cache');
+                    localStorage.removeItem('google_script_url'); // 설정값 삭제
                     setData([]); 
+                    setGoogleScriptUrl(DEFAULT_GOOGLE_SCRIPT_URL); // 상태 즉시 복원
                     window.location.reload();
                 }
             }
@@ -949,7 +952,23 @@
                             <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
                                 <div className="flex justify-between mb-4"><h3 className="font-bold text-lg">설정</h3><button onClick={()=>setIsSettingsOpen(false)}><Icon name="X"/></button></div>
                                 <div className="space-y-4">
-                                    <div><label className="block text-xs font-bold mb-1">Google Script URL</label><input value={googleScriptUrl} onChange={e=>setGoogleScriptUrl(e.target.value)} className="w-full border p-2 rounded"/></div>
+                                    <div>
+                                        <label className="block text-xs font-bold mb-1">Google Script URL</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                value={googleScriptUrl} 
+                                                onChange={e=>setGoogleScriptUrl(e.target.value)} 
+                                                className="w-full border p-2 rounded text-sm"
+                                            />
+                                            <button 
+                                                onClick={() => setGoogleScriptUrl(DEFAULT_GOOGLE_SCRIPT_URL)}
+                                                className="whitespace-nowrap px-3 py-2 bg-gray-100 text-gray-600 text-xs font-bold rounded hover:bg-gray-200 border"
+                                                title="기본 URL로 되돌리기"
+                                            >
+                                                기본값
+                                            </button>
+                                        </div>
+                                    </div>
                                     <div className="bg-gray-50 p-3 rounded text-sm">
                                         <div className="flex justify-between items-center mb-2">
                                             <span className="font-bold">🔑 서버 연결 테스트</span>
