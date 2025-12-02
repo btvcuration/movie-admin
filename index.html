@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin</title>
+    <title>Movie Admin (Complete Edition)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -308,13 +308,13 @@
                 fetchRequests();
             };
 
-            // 🔥 [수정됨] URL 설정도 함께 초기화되도록 변경
+            // URL 설정 초기화 포함
             const handleForceReset = () => {
                 if(confirm("데이터와 설정을 모두 강제 초기화하시겠습니까?\n(Google Script URL도 기본값으로 돌아갑니다)")) {
                     localStorage.removeItem('admin_data_cache');
-                    localStorage.removeItem('google_script_url'); // 설정값 삭제
+                    localStorage.removeItem('google_script_url');
                     setData([]); 
-                    setGoogleScriptUrl(DEFAULT_GOOGLE_SCRIPT_URL); // 상태 즉시 복원
+                    setGoogleScriptUrl(DEFAULT_GOOGLE_SCRIPT_URL);
                     window.location.reload();
                 }
             }
@@ -657,7 +657,8 @@
 
             return (
                 <div className="flex h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
-                    <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'w-20' : 'w-64'} fixed md:relative z-[60] h-[100dvh] ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+                    {/* 🛠 수정됨: 모바일에서 너비 w-64 강제 고정 및 left-0 top-0 추가 */}
+                    <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'md:w-20 w-64' : 'w-64'} fixed md:relative z-[60] h-[100dvh] left-0 top-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
                         <div className="p-6 border-b flex justify-between items-center h-20 shrink-0">
                             {!isSidebarCollapsed ? (
                                 <div className="flex items-center justify-between w-full">
@@ -676,22 +677,23 @@
                             {['dashboard', 'management', 'requests', 'history'].map(tab => (
                                 <button key={tab} onClick={()=>{setActiveTab(tab); setIsSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium capitalize transition-colors ${activeTab===tab?'bg-indigo-50 text-indigo-700':'hover:bg-gray-50 text-gray-600'} ${isSidebarCollapsed ? 'justify-center' : ''}`}>
                                     <Icon name={tab==='dashboard'?'LayoutDashboard':tab==='management'?'FileSpreadsheet':tab==='requests'?'Mail':'History'} size={20}/> 
-                                    {!isSidebarCollapsed && <span>{tab==='requests'?'CP 요청 관리':tab==='management'?'편성 관리':tab==='history'?'작업 이력': '대시보드'}</span>}
+                                    {/* 모바일에서는 Collapse 여부 상관없이 텍스트 표시 */}
+                                    {(!isSidebarCollapsed || isSidebarOpen) && <span className="md:inline">{tab==='requests'?'CP 요청 관리':tab==='management'?'편성 관리':tab==='history'?'작업 이력': '대시보드'}</span>}
                                 </button>
                             ))}
                         </nav>
                         <div className="p-4 border-t bg-gray-50 shrink-0 space-y-1 pb-8 md:pb-4">
                             <button onClick={()=>setIsSettingsOpen(true)} className={`w-full flex items-center gap-2 px-4 py-2 rounded text-sm font-medium hover:bg-gray-200 text-gray-700 ${isSidebarCollapsed ? 'justify-center' : ''}`} title="설정">
-                                <Icon name="Settings" size={16}/> {!isSidebarCollapsed && "설정"}
+                                <Icon name="Settings" size={16}/> {(!isSidebarCollapsed || isSidebarOpen) && "설정"}
                             </button>
                             <button onClick={fetchData} disabled={isFetching} className={`w-full flex items-center gap-2 px-4 py-2 rounded text-sm font-medium hover:bg-gray-200 text-indigo-600 ${isSidebarCollapsed ? 'justify-center' : ''}`} title="동기화">
-                                {isFetching?<Icon name="Loader2" className="animate-spin" size={16}/>:<Icon name="RefreshCw" size={16}/>} {!isSidebarCollapsed && "동기화"}
+                                {isFetching?<Icon name="Loader2" className="animate-spin" size={16}/>:<Icon name="RefreshCw" size={16}/>} {(!isSidebarCollapsed || isSidebarOpen) && "동기화"}
                             </button>
                             <button onClick={handleFullReset} className={`w-full flex items-center gap-2 px-4 py-2 rounded text-sm font-medium hover:bg-red-50 text-red-500 ${isSidebarCollapsed ? 'justify-center' : ''}`} title="초기화">
-                                <Icon name="Trash" size={16}/> {!isSidebarCollapsed && "초기화"}
+                                <Icon name="Trash" size={16}/> {(!isSidebarCollapsed || isSidebarOpen) && "초기화"}
                             </button>
                             <button onClick={handleLogout} className={`w-full flex items-center gap-2 px-4 py-2 text-xs text-red-500 font-bold hover:bg-red-50 rounded ${isSidebarCollapsed ? 'justify-center' : ''}`} title="로그아웃">
-                                <Icon name="LogOut" size={16}/> {!isSidebarCollapsed && "로그아웃"}
+                                <Icon name="LogOut" size={16}/> {(!isSidebarCollapsed || isSidebarOpen) && "로그아웃"}
                             </button>
                         </div>
                     </aside>
@@ -701,7 +703,8 @@
                     <main className="flex-1 h-full overflow-hidden flex flex-col w-full relative">
                         <div className="md:hidden p-4 border-b flex items-center bg-white shrink-0 justify-between">
                             <div className="flex items-center gap-3">
-                                <button onClick={()=>setIsSidebarOpen(true)}><Icon name="Menu"/></button>
+                                {/* 🛠 수정됨: 햄버거 버튼 크기 확대 및 패딩 추가 */}
+                                <button onClick={()=>setIsSidebarOpen(true)} className="p-2"><Icon name="Menu" size={24}/></button>
                                 <span className="font-bold text-lg">Movie Admin</span>
                             </div>
                             <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{currentDate}</span>
@@ -1090,4 +1093,3 @@
     </script>
 </body>
 </html>
-
