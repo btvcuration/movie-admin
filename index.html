@@ -308,7 +308,6 @@
                 fetchRequests();
             };
 
-            // URL 설정 초기화 포함
             const handleForceReset = () => {
                 if(confirm("데이터와 설정을 모두 강제 초기화하시겠습니까?\n(Google Script URL도 기본값으로 돌아갑니다)")) {
                     localStorage.removeItem('admin_data_cache');
@@ -657,7 +656,17 @@
 
             return (
                 <div className="flex h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
-                    {/* 🛠 수정됨: 모바일에서 너비 w-64 강제 고정 및 left-0 top-0 추가 */}
+                    {/* 모바일 전용: 사이드바 열기 플로팅 버튼 (▶) */}
+                    {!isSidebarOpen && (
+                        <button 
+                            onClick={() => setIsSidebarOpen(true)}
+                            className="md:hidden fixed left-0 top-1/2 -translate-y-1/2 z-50 bg-indigo-600 text-white p-3 rounded-r-xl shadow-lg hover:bg-indigo-700 transition-transform hover:scale-110"
+                            title="메뉴 열기"
+                        >
+                            <Icon name="ChevronRight" size={24} />
+                        </button>
+                    )}
+
                     <aside className={`flex flex-col bg-white border-r transition-all duration-300 ${isSidebarCollapsed ? 'md:w-20 w-64' : 'w-64'} fixed md:relative z-[60] h-[100dvh] left-0 top-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
                         <div className="p-6 border-b flex justify-between items-center h-20 shrink-0">
                             {!isSidebarCollapsed ? (
@@ -677,7 +686,6 @@
                             {['dashboard', 'management', 'requests', 'history'].map(tab => (
                                 <button key={tab} onClick={()=>{setActiveTab(tab); setIsSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium capitalize transition-colors ${activeTab===tab?'bg-indigo-50 text-indigo-700':'hover:bg-gray-50 text-gray-600'} ${isSidebarCollapsed ? 'justify-center' : ''}`}>
                                     <Icon name={tab==='dashboard'?'LayoutDashboard':tab==='management'?'FileSpreadsheet':tab==='requests'?'Mail':'History'} size={20}/> 
-                                    {/* 모바일에서는 Collapse 여부 상관없이 텍스트 표시 */}
                                     {(!isSidebarCollapsed || isSidebarOpen) && <span className="md:inline">{tab==='requests'?'CP 요청 관리':tab==='management'?'편성 관리':tab==='history'?'작업 이력': '대시보드'}</span>}
                                 </button>
                             ))}
@@ -703,8 +711,7 @@
                     <main className="flex-1 h-full overflow-hidden flex flex-col w-full relative">
                         <div className="md:hidden p-4 border-b flex items-center bg-white shrink-0 justify-between">
                             <div className="flex items-center gap-3">
-                                {/* 🛠 수정됨: 햄버거 버튼 크기 확대 및 패딩 추가 */}
-                                <button onClick={()=>setIsSidebarOpen(true)} className="p-2"><Icon name="Menu" size={24}/></button>
+                                <button onClick={()=>setIsSidebarOpen(true)} className="p-2 bg-gray-100 rounded hover:bg-gray-200"><Icon name="Menu" size={24}/></button>
                                 <span className="font-bold text-lg">Movie Admin</span>
                             </div>
                             <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{currentDate}</span>
