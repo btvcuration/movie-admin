@@ -591,21 +591,50 @@
             const handleApproveRequest = (req) => {
                 let aiData = {};
                 try {
-                    if (req.details && (req.details.startsWith('{') || req.details.startsWith('['))) {
-                        const cleanJson = req.details.replace(/```json|```/g, '').trim();
-                        aiData = JSON.parse(cleanJson);
+                    // [핵심 수정 1] JSON 파싱 로직 강화 (정규식 사용)
+                    // req.details가 문자열인 경우 JSON 객체 부분만 발췌 시도
+                    if (typeof req.details === 'string') {
+                        const jsonMatch = req.details.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            aiData = JSON.parse(jsonMatch[0]);
+                        } else {
+                            // 매칭 안될 경우 기존 방식 시도 (혹시 모를 대비)
+                            const cleanJson = req.details.replace(/```json|```/g, '').trim();
+                            if (cleanJson.startsWith('{')) {
+                                aiData = JSON.parse(cleanJson);
+                            }
+                        }
+                    } else if (typeof req.details === 'object') {
+                        // 이미 객체인 경우
+                        aiData = req.details;
                     }
-                } catch (e) { console.log("JSON Parsing Fail:", e); }
+                } catch (e) { 
+                    console.error("JSON Parsing Fail in Request:", e); 
+                    // 파싱 실패 시 aiData는 빈 객체 {} 가 됨
+                }
 
+                // [핵심 수정 2] 누락되었던 메타데이터 필드 매핑 추가
                 const newForm = {
                     ...initialForm,
+                    // 기본 필수 정보
                     title: aiData.title || req.title || '',
-                    originalTitle: aiData.originalTitle || '', // 🛠 CP 요청/AI 분석에 포함된 원제목 반영
                     cp: aiData.cp || req.cp || '',
                     category: aiData.category || req.category || '한국영화',
+                    
+                    // 🛠 추가된 메타데이터 (이 부분이 빠져있어서 반영이 안 되었습니다)
+                    originalTitle: aiData.originalTitle || '', 
+                    prodYear: aiData.prodYear || '',
+                    actors: aiData.actors || '',
+                    awards: aiData.awards || '',
+                    rating: aiData.rating || '',
+                    boxOffice: aiData.boxOffice || '',
+
+                    // 가격 및 편성 정보
                     pricingPolicy: Array.isArray(aiData.pricingPolicy) ? aiData.pricingPolicy : [],
                     btvPlusStatus: aiData.btvPlusStatus || 'N',
                     btvPlusAvailableDate: aiData.btvPlusAvailableDate || '',
+                    
+                    // 비고 (AI 파싱에 실패했거나 내용이 없으면 원본 내용을 넣음)
                     remarks: aiData.remarks || (Object.keys(aiData).length > 0 ? '' : req.details)
                 };
 
@@ -614,9 +643,9 @@
                 setIsModalOpen(true);
                 setPendingRequestId(req.id);
                 
-                if (Array.isArray(aiData.pricingPolicy) && aiData.pricingPolicy.length > 0) showToast("가격 정책 자동 입력됨");
-                else if (aiData.btvPlusStatus === 'Y') showToast("월정액 편성 정보 입력됨");
-                else showToast("기본 정보 입력됨");
+                // 사용자 피드백 메시지
+                if (Object.keys(aiData).length > 3) showToast("✨ AI 분석 데이터가 자동 입력되었습니다.");
+                else showToast("기본 정보가 입력되었습니다.");
             };
 
             const handleRejectRequest = async (reqId, title) => {
@@ -1135,3 +1164,4 @@
     </script>
 </body>
 </html>
+
