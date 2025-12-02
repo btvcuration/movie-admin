@@ -85,9 +85,13 @@
                 const targetUrl = `${scriptUrl}?type=ai_search&prompt=${encodeURIComponent(prompt)}`;
                 const response = await fetch(targetUrl);
                 if (!response.ok) return { error: `서버 통신 오류 (${response.status})` };
+                
                 const result = await response.json();
                 if (result.error) return { error: result.error };
-                return { text: result.text, modelUsed: 'Server-Side AI' };
+                
+                // 🛠 [수정] result.text로 감싸지 않고, 서버 응답 전체를 반환합니다.
+                // 서버가 이미 파싱된 객체({ originalTitle: ... })를 보낼 수도 있기 때문입니다.
+                return result; 
             } catch (e) { return { error: "요청 실패: " + e.message }; }
         };
 
@@ -525,7 +529,6 @@
                 
                 setIsAiLoading(true);
                 
-                // 🛠 [AI 프롬프트 수정] 원제목(originalTitle)을 힌트로 제공 및 반환 요청
                 const prompt = `
                 역할: 당신은 깐깐한 영화 데이터베이스 관리자입니다.
                 요청: 아래 영화에 대한 정확한 메타데이터를 JSON 포맷으로 찾아주세요.
@@ -553,35 +556,47 @@
                 
                 if (res.error) {
                     alert(res.error); 
-                } else if (res.text) {
+                } else {
                     try {
-                        let jsonStr = res.text;
-                        // 🛠 [JSON 정규식 추출] 안정성 강화
-                        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-                        
-                        if (jsonMatch) {
-                            jsonStr = jsonMatch[0];
-                            const json = JSON.parse(jsonStr);
+                        let json = {};
 
-                            if (json.error === "NOT_FOUND") {
-                                alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}`);
+                        // 🛠 [핵심 수정] 서버 응답 타입에 따른 분기 처리
+                        // Case 1: 서버(GAS)가 이미 JSON 파싱을 완료해서 객체로 보낸 경우 (성공 케이스)
+                        if (res.rating || res.prodYear || res.actors || res.originalTitle) {
+                            json = res;
+                        } 
+                        // Case 2: 서버가 텍스트로 보낸 경우 (res.text에 문자열이 담겨옴)
+                        else if (res.text) {
+                            let jsonStr = res.text;
+                            const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                json = JSON.parse(jsonMatch[0]);
                             } else {
-                                setFormData(prev => ({ 
-                                    ...prev, 
-                                    originalTitle: json.originalTitle || prev.originalTitle, // AI가 찾은 원제목 반영
-                                    rating: json.rating || prev.rating,
-                                    prodYear: json.prodYear || prev.prodYear,
-                                    boxOffice: json.boxOffice || prev.boxOffice,
-                                    actors: json.actors || prev.actors,
-                                    awards: json.awards || prev.awards
-                                }));
-                                showToast("✨ AI 데이터 입력 완료!");
+                                throw new Error("JSON 형식을 찾을 수 없음");
                             }
                         } else {
-                             throw new Error("JSON not found");
+                            throw new Error("비어있는 응답입니다.");
                         }
+
+                        // 데이터 적용
+                        if (json.error === "NOT_FOUND") {
+                            alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}`);
+                        } else {
+                            setFormData(prev => ({ 
+                                ...prev, 
+                                originalTitle: json.originalTitle || prev.originalTitle, 
+                                rating: json.rating || prev.rating,
+                                prodYear: json.prodYear || prev.prodYear,
+                                boxOffice: json.boxOffice || prev.boxOffice,
+                                actors: json.actors || prev.actors,
+                                awards: json.awards || prev.awards
+                            }));
+                            showToast("✨ AI 데이터 입력 완료!");
+                        }
+
                     } catch (e) {
                         console.error("AI Parse Error:", e);
+                        console.log("Raw Response:", res); // 디버깅용 로그
                         alert("데이터 분석 실패: 응답 형식이 올바르지 않습니다.");
                     }
                 }
@@ -1164,4 +1179,5 @@
     </script>
 </body>
 </html>
+
 
