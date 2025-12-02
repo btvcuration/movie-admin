@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin (Text Icon Ver)</title>
+    <title>Movie Admin (Original Title + AI Enhanced)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -127,6 +127,7 @@
                         ...item,
                         id: item.id,
                         title: item.title,
+                        originalTitle: item.originalTitle || '', // 🛠 원제목 추가
                         cp: item.cp || '-',
                         category: item.category || '기타',
                         btvPlusStatus: autoStatus,
@@ -208,8 +209,9 @@
             const CP_LIST = [ "CJ ENM", "롯데 엔터테인먼트", "쇼박스", "NEW", "콘텐츠판다", "케이티알파", "스튜디오산타클로스", "이놀미디어", "나인플래너스", "소니픽쳐스", "유니버설", "워너브라더스", "디즈니", "파라마운트", "더쿱분배", "엣나인필름", "영화사 진진", "티캐스트" ];
             const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화"];
             
+            // 🛠 [데이터 구조] originalTitle 추가
             const initialForm = { 
-                title: '', cp: '', category: '한국영화', 
+                title: '', originalTitle: '', cp: '', category: '한국영화', 
                 rating: '', boxOffice: '', actors: '', awards: '', prodYear: '', 
                 btvPlusStatus: 'N', btvPlusAvailableDate: '', btvPlusActualDate: '',
                 remarks: '', 
@@ -520,22 +522,26 @@
                 if (!formData.title) return alert("타이틀을 먼저 입력해주세요.");
                 const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
                 if (!scriptUrl) return alert("설정 확인 필요");
+                
                 setIsAiLoading(true);
                 
+                // 🛠 [AI 프롬프트 수정] 원제목(originalTitle)을 힌트로 제공 및 반환 요청
                 const prompt = `
                 역할: 당신은 깐깐한 영화 데이터베이스 관리자입니다.
                 요청: 아래 영화에 대한 정확한 메타데이터를 JSON 포맷으로 찾아주세요.
                 - 검색 제목: "${formData.title}"
+                - 원제목 힌트: "${formData.originalTitle || ''}" 
                 - 카테고리 힌트: "${formData.category || '전체'}"
 
                 [치명적 규칙]
-                1. 검색 제목과 일치하거나 명확한 경우만 반환.
+                1. 검색 제목과 일치하거나 명확한 경우만 반환. 원제목 힌트가 있다면 이를 적극 활용하여 동명의 다른 영화와 구분하시오.
                 2. 불확실하면 추측 금지.
                 3. 없는 정보는 빈칸.
                 4. 못 찾으면 {"error": "NOT_FOUND"} 반환.
 
                 [반환 포맷 (JSON)]
                 {
+                    "originalTitle": "원제목(영어 또는 원어)",
                     "rating": "평점(예: 8.5)",
                     "prodYear": "연도(예: 2019)",
                     "boxOffice": "관객수(예: 1,031.3만명)",
@@ -550,18 +556,33 @@
                 } else if (res.text) {
                     try {
                         let jsonStr = res.text;
-                        if (jsonStr.includes("```json")) jsonStr = jsonStr.split("```json")[1].split("```")[0];
-                        else if (jsonStr.includes("```")) jsonStr = jsonStr.split("```")[1].split("```")[0];
-                        const json = JSON.parse(jsonStr);
-                        if (json.error === "NOT_FOUND") {
-                            alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}`);
+                        // 🛠 [JSON 정규식 추출] 안정성 강화
+                        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+                        
+                        if (jsonMatch) {
+                            jsonStr = jsonMatch[0];
+                            const json = JSON.parse(jsonStr);
+
+                            if (json.error === "NOT_FOUND") {
+                                alert(`⛔ 검색 결과가 없습니다.\n\n타이틀: ${formData.title}`);
+                            } else {
+                                setFormData(prev => ({ 
+                                    ...prev, 
+                                    originalTitle: json.originalTitle || prev.originalTitle, // AI가 찾은 원제목 반영
+                                    rating: json.rating || prev.rating,
+                                    prodYear: json.prodYear || prev.prodYear,
+                                    boxOffice: json.boxOffice || prev.boxOffice,
+                                    actors: json.actors || prev.actors,
+                                    awards: json.awards || prev.awards
+                                }));
+                                showToast("✨ AI 데이터 입력 완료!");
+                            }
                         } else {
-                            setFormData(prev => ({ ...prev, ...json }));
-                            showToast("AI 데이터 입력 완료!");
+                             throw new Error("JSON not found");
                         }
                     } catch (e) {
                         console.error("AI Parse Error:", e);
-                        alert("데이터 분석 실패.");
+                        alert("데이터 분석 실패: 응답 형식이 올바르지 않습니다.");
                     }
                 }
                 setIsAiLoading(false);
@@ -579,6 +600,7 @@
                 const newForm = {
                     ...initialForm,
                     title: aiData.title || req.title || '',
+                    originalTitle: aiData.originalTitle || '', // 🛠 CP 요청/AI 분석에 포함된 원제목 반영
                     cp: aiData.cp || req.cp || '',
                     category: aiData.category || req.category || '한국영화',
                     pricingPolicy: Array.isArray(aiData.pricingPolicy) ? aiData.pricingPolicy : [],
@@ -670,7 +692,6 @@
                                 </div>
                             )}
                             
-                            {/* 🛠 [수정 완료] 닫기 아이콘(X)을 텍스트 ✕ 로 변경하여 항상 보이게 함 */}
                             <button className="md:hidden p-2 text-gray-500 hover:bg-gray-100 rounded font-bold text-xl" onClick={()=>setIsSidebarOpen(false)}>
                                 ✕
                             </button>
@@ -704,7 +725,6 @@
                     <main className="flex-1 h-full overflow-hidden flex flex-col w-full relative">
                         <div className="md:hidden p-4 border-b flex items-center bg-white shrink-0 justify-between">
                             <div className="flex items-center gap-3">
-                                {/* 🛠 [수정 완료] 아이콘 깨짐 방지: 텍스트 ▶ 사용 */}
                                 <button 
                                     onClick={()=>setIsSidebarOpen(true)} 
                                     className="p-2 bg-indigo-600 text-white rounded-lg shadow-md hover:bg-indigo-700 transition-colors font-bold"
@@ -811,6 +831,7 @@
                                                                 <td className="p-4 text-gray-500">{d.id}</td>
                                                                 <td className="p-4 font-bold text-gray-800 cursor-pointer hover:text-indigo-600" onClick={()=>handleTitleClick(d)}>
                                                                     {d.title}
+                                                                    {d.originalTitle && <span className="block text-xs font-normal text-gray-400">{d.originalTitle}</span>}
                                                                     {isNew && <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-bold">N</span>}
                                                                 </td>
                                                                 <td className="p-4 text-gray-600">{d.cp}</td>
@@ -921,7 +942,6 @@
                                 <div className="animate-in fade-in duration-500">
                                     <h1 className="text-2xl font-bold mb-6">작업 이력</h1>
                                     <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                                        {/* 🛠 [수정 완료] 가로 스크롤 적용 (overflow-x-auto) */}
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-sm text-left whitespace-nowrap">
                                                 <thead className="bg-gray-50 border-b">
@@ -1024,6 +1044,9 @@
                                         <div className="flex justify-between items-end mb-4"><h4 className="font-bold text-lg flex items-center gap-2"><Icon name="Package"/> 기본 정보 & 메타데이터</h4><button onClick={handleAiMeta} className="text-xs ai-button text-white px-3 py-1 rounded-full font-bold flex items-center gap-1"><Icon name="Sparkles"/> AI 자동채우기</button></div>
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">타이틀 *</label><input className="w-full border p-2 rounded" value={formData.title} onChange={e=>setFormData({...formData, title:e.target.value})}/></div>
+                                            {/* 🛠 [UI 수정] 원제목 필드 추가 (타이틀 옆 배치) */}
+                                            <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">원제목 (선택)</label><input className="w-full border p-2 rounded" value={formData.originalTitle} onChange={e=>setFormData({...formData, originalTitle:e.target.value})} placeholder="검색 정확도 향상용"/></div>
+                                            
                                             <div>
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">CP사 *</label>
                                                 <input list="cp-options" className="w-full border p-2 rounded" value={formData.cp} onChange={e=>setFormData({...formData, cp:e.target.value})} placeholder="선택/입력"/>
@@ -1059,14 +1082,24 @@
                                         <div className="flex border-b mb-4"><button onClick={()=>setPricingTab('RENTAL')} className={`px-6 py-2 font-bold text-sm border-b-2 ${pricingTab==='RENTAL'?'border-indigo-600 text-indigo-600':'border-transparent text-gray-400'}`}>대여</button><button onClick={()=>setPricingTab('POSSESSION')} className={`px-6 py-2 font-bold text-sm border-b-2 ${pricingTab==='POSSESSION'?'border-indigo-600 text-indigo-600':'border-transparent text-gray-400'}`}>소장</button></div>
                                         <div className="border rounded-lg overflow-hidden overflow-x-auto">
                                             <table className="w-full text-sm text-left whitespace-nowrap">
-                                                <thead className="bg-gray-55 text-gray-600"><tr><th className="p-3">유형</th><th className="p-3">가격</th><th className="p-3">시작일</th><th className="p-3">종료일</th><th className="p-3 text-center">기간</th><th className="p-3 text-center">삭제</th></tr></thead>
+                                                {/* 🛠 [UI 수정] 모바일 대응 최소 너비(min-w) 적용 */}
+                                                <thead className="bg-gray-55 text-gray-600">
+                                                    <tr>
+                                                        <th className="p-3 min-w-[100px]">유형</th>
+                                                        <th className="p-3 min-w-[100px]">가격</th>
+                                                        <th className="p-3 min-w-[140px]">시작일</th>
+                                                        <th className="p-3 min-w-[140px]">종료일</th>
+                                                        <th className="p-3 text-center min-w-[80px]">기간</th>
+                                                        <th className="p-3 text-center min-w-[60px]">삭제</th>
+                                                    </tr>
+                                                </thead>
                                                 <tbody className="divide-y">
                                                     {formData.pricingPolicy.map((p, i) => {
                                                         if ((p.mode || "RENTAL") !== pricingTab) return null;
                                                         return (
                                                             <tr key={i}>
                                                                 <td className="p-2"><select className="w-full border p-1.5 rounded" value={p.type} onChange={e=>updatePolicy(i,'type',e.target.value)}><option>SPVOD</option><option>EPVOD</option><option>PVOD</option><option>RVOD</option><option>LIBRARY</option></select></td>
-                                                                <td className="p-2"><input type="number" step="1000" className="w-24 border p-1.5 rounded text-right" value={p.price} onChange={e=>updatePolicy(i,'price',e.target.value)}/></td>
+                                                                <td className="p-2"><input type="number" step="1000" className="w-full border p-1.5 rounded text-right" value={p.price} onChange={e=>updatePolicy(i,'price',e.target.value)}/></td>
                                                                 <td className="p-2"><input type="date" className="w-full border p-1.5 rounded" value={p.startDate} onChange={e=>updatePolicy(i,'startDate',e.target.value)}/></td>
                                                                 <td className="p-2"><input type="date" className="w-full border p-1.5 rounded" value={p.endDate} onChange={e=>updatePolicy(i,'endDate',e.target.value)}/></td>
                                                                 <td className="p-2 text-center text-xs text-gray-500">{getDuration(p.startDate, p.endDate)}</td>
