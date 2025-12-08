@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Movie Admin (Final Integrated Ver)</title>
+    <title>Movie Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
@@ -37,7 +37,7 @@
         // 🔑 [설정] Server-Side Logic URL
         const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzMyF2XbEP5V1ImkatRvGw5FHOh0MLYq0ChqhT_h0eEw2rRwnEi9-WucxYmsIRLI_b7YQ/exec";
 
-        // 🔥 Firebase 설정 (본인의 키로 교체 필요)
+        // 🔥 Firebase 설정
         const firebaseConfig = {
             apiKey: "AIzaSyDsuxadED3xkBeGf2X2caD2ZWXG0qaSVqc",
             authDomain: "movie-45532.firebaseapp.com",
@@ -89,7 +89,6 @@
                 const result = await response.json();
                 if (result.error) return { error: result.error };
                 
-                // 🛠 [수정] 서버 응답(객체 or 텍스트) 전체 반환
                 return result; 
             } catch (e) { return { error: "요청 실패: " + e.message }; }
         };
@@ -130,7 +129,7 @@
                         ...item,
                         id: item.id,
                         title: item.title,
-                        originalTitle: item.originalTitle || '', // 🛠 원제목 추가
+                        originalTitle: item.originalTitle || '',
                         cp: item.cp || '-',
                         category: item.category || '기타',
                         btvPlusStatus: autoStatus,
@@ -180,6 +179,11 @@
             const [requests, setRequests] = useState([]);
             const [history, setHistory] = useState([]); 
             const [selectedRequests, setSelectedRequests] = useState([]); 
+
+            // [추가] Requests 필터용 State
+            const [reqFilterCp, setReqFilterCp] = useState('ALL');
+            const [reqStartDate, setReqStartDate] = useState('');
+            const [reqEndDate, setReqEndDate] = useState('');
 
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -294,6 +298,23 @@
                 if (activeTab === 'history') fetchHistory();
                 if (activeTab === 'requests') fetchRequests();
             }, [activeTab]);
+
+            // [추가] 필터링 로직 구현 (메일 수신일 = timestamp 기준)
+            const filteredRequests = useMemo(() => {
+                return requests.filter(req => {
+                    // 1. CP 필터
+                    if (reqFilterCp !== 'ALL' && req.cp !== reqFilterCp) return false;
+
+                    // 2. 날짜 필터 (timestamp: "YYYY-MM-DD..." 가정)
+                    if (reqStartDate || reqEndDate) {
+                        if (!req.timestamp) return false;
+                        const reqDate = req.timestamp.substring(0, 10);
+                        if (reqStartDate && reqDate < reqStartDate) return false;
+                        if (reqEndDate && reqDate > reqEndDate) return false;
+                    }
+                    return true;
+                });
+            }, [requests, reqFilterCp, reqStartDate, reqEndDate]);
 
             const handleLogin = async (e) => {
                 e.preventDefault(); setLoginError(null);
@@ -438,9 +459,14 @@
             const toggleRequestSelection = (id) => {
                 setSelectedRequests(prev => prev.includes(id) ? prev.filter(reqId => reqId !== id) : [...prev, id]);
             };
+
+            // [수정] 필터링된 목록 기준으로 전체 선택 로직 변경
             const toggleSelectAll = () => {
-                if (selectedRequests.length === requests.length) setSelectedRequests([]);
-                else setSelectedRequests(requests.map(r => r.id));
+                if (filteredRequests.length > 0 && selectedRequests.length === filteredRequests.length) {
+                    setSelectedRequests([]);
+                } else {
+                    setSelectedRequests(filteredRequests.map(r => r.id));
+                }
             };
 
             const handleBatchReject = async () => {
@@ -558,7 +584,6 @@
                     try {
                         let json = {};
 
-                        // 🛠 [핵심 수정] 서버 응답 타입에 따른 분기 처리
                         if (res.rating || res.prodYear || res.actors || res.originalTitle) {
                             json = res;
                         } 
@@ -592,7 +617,7 @@
 
                     } catch (e) {
                         console.error("AI Parse Error:", e);
-                        console.log("Raw Response:", res); // 디버깅용 로그
+                        console.log("Raw Response:", res); 
                         alert("데이터 분석 실패: 응답 형식이 올바르지 않습니다.");
                     }
                 }
@@ -602,7 +627,6 @@
             const handleApproveRequest = (req) => {
                 let aiData = {};
                 try {
-                    // [핵심 수정] JSON 파싱 로직 강화
                     if (typeof req.details === 'string') {
                         const jsonMatch = req.details.match(/\{[\s\S]*\}/);
                         if (jsonMatch) {
@@ -620,7 +644,6 @@
                     console.error("JSON Parsing Fail in Request:", e); 
                 }
 
-                // [핵심 수정] 메타데이터 필드 매핑
                 const newForm = {
                     ...initialForm,
                     title: aiData.title || req.title || '',
@@ -897,38 +920,93 @@
                             {/* Requests Tab */}
                             {activeTab === 'requests' && (
                                 <div className="animate-in fade-in duration-500 pb-20">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h1 className="text-2xl font-bold flex items-center gap-2">CP 요청 관리 <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">Gmail 연동됨</span></h1>
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                                        <h1 className="text-2xl font-bold flex items-center gap-2">
+                                            CP 요청 관리 
+                                            <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">Gmail 연동</span>
+                                        </h1>
                                         
-                                        {selectedRequests.length > 0 && (
-                                            <div className="flex items-center gap-3 bg-indigo-600 text-white px-4 py-2 rounded-lg shadow animate-in fade-in slide-in-from-top-2">
-                                                <span className="font-bold text-sm">{selectedRequests.length}건 선택됨</span>
-                                                <div className="h-4 w-px bg-white/30"></div>
-                                                <button onClick={handleBatchReject} className="hover:bg-indigo-700 text-sm font-bold flex items-center gap-1">
-                                                    <Icon name="Trash2" size={14}/> 일괄 삭제(반려)
-                                                </button>
+                                        {/* [신규] 필터 컨트롤 영역 */}
+                                        <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg border shadow-sm w-full md:w-auto">
+                                            {/* CP 선택 */}
+                                            <select 
+                                                value={reqFilterCp} 
+                                                onChange={(e) => setReqFilterCp(e.target.value)}
+                                                className="border rounded px-2 py-1.5 text-sm bg-gray-50 focus:bg-white transition outline-none"
+                                            >
+                                                <option value="ALL">전체 CP</option>
+                                                <option value="">CP 미지정</option>
+                                                {CP_LIST.map(cp => <option key={cp} value={cp}>{cp}</option>)}
+                                            </select>
+
+                                            <div className="h-4 w-px bg-gray-300 mx-1"></div>
+
+                                            {/* 날짜 범위 */}
+                                            <div className="flex items-center gap-1 text-sm">
+                                                <input 
+                                                    type="date" 
+                                                    value={reqStartDate}
+                                                    onChange={(e) => setReqStartDate(e.target.value)}
+                                                    className="border rounded px-2 py-1.5 bg-gray-50 focus:bg-white"
+                                                />
+                                                <span className="text-gray-400">~</span>
+                                                <input 
+                                                    type="date" 
+                                                    value={reqEndDate}
+                                                    onChange={(e) => setReqEndDate(e.target.value)}
+                                                    className="border rounded px-2 py-1.5 bg-gray-50 focus:bg-white"
+                                                />
                                             </div>
-                                        )}
+
+                                            {/* 초기화 버튼 */}
+                                            {(reqFilterCp !== 'ALL' || reqStartDate || reqEndDate) && (
+                                                <button 
+                                                    onClick={() => { setReqFilterCp('ALL'); setReqStartDate(''); setReqEndDate(''); }}
+                                                    className="ml-auto md:ml-0 text-xs text-gray-500 underline hover:text-indigo-600 px-2"
+                                                >
+                                                    필터 초기화
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    <div className="mb-4 flex items-center gap-2">
+                                    {/* 일괄 작업 버튼 (선택된 항목이 있을 때만 표시) */}
+                                    {selectedRequests.length > 0 && (
+                                        <div className="mb-4 flex items-center gap-3 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow animate-in fade-in slide-in-from-top-2">
+                                            <span className="font-bold text-sm">{selectedRequests.length}건 선택됨</span>
+                                            <div className="h-4 w-px bg-white/30"></div>
+                                            <button onClick={handleBatchReject} className="hover:bg-indigo-700 text-sm font-bold flex items-center gap-1">
+                                                <Icon name="Trash2" size={14}/> 일괄 삭제(반려)
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* 전체 선택 체크박스 (필터링 결과 기준) */}
+                                    <div className="mb-4 flex items-center gap-2 px-1">
                                         <input type="checkbox" id="selectAll" 
-                                            checked={requests.length > 0 && selectedRequests.length === requests.length} 
+                                            checked={filteredRequests.length > 0 && selectedRequests.length === filteredRequests.length} 
                                             onChange={toggleSelectAll}
+                                            disabled={filteredRequests.length === 0}
                                             className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                                         />
-                                        <label htmlFor="selectAll" className="text-sm text-gray-600 cursor-pointer select-none">전체 선택</label>
+                                        <label htmlFor="selectAll" className="text-sm text-gray-600 cursor-pointer select-none">
+                                            전체 선택 ({filteredRequests.length}건)
+                                        </label>
                                     </div>
                                     
+                                    {/* 리스트 영역 */}
                                     <div className="grid gap-4">
-                                        {requests.length === 0 ? (
+                                        {filteredRequests.length === 0 ? (
                                             <div className="text-center py-20 text-gray-400 bg-white rounded-xl border">
                                                 <Icon name="Inbox" size={48} className="mx-auto mb-4 opacity-20"/>
-                                                <p>대기 중인 편성 요청 메일이 없습니다.</p>
-                                                <p className="text-xs mt-2">btvcuration@gmail.com 으로 메일이 오면 자동으로 표시됩니다.</p>
+                                                <p>조건에 맞는 요청 내역이 없습니다.</p>
+                                                {(reqFilterCp !== 'ALL' || reqStartDate || reqEndDate) ? 
+                                                    <p className="text-xs mt-2 text-indigo-500 cursor-pointer" onClick={() => { setReqFilterCp('ALL'); setReqStartDate(''); setReqEndDate(''); }}>필터 초기화하기</p> :
+                                                    <p className="text-xs mt-2">btvcuration@gmail.com 으로 메일이 오면 자동으로 표시됩니다.</p>
+                                                }
                                             </div>
                                         ) : (
-                                            requests.map(req => (
+                                            filteredRequests.map(req => (
                                                 <div key={req.id} className={`bg-white p-6 rounded-xl border shadow-sm transition flex flex-col md:flex-row gap-6 ${selectedRequests.includes(req.id) ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/10' : 'hover:shadow-md'}`}>
                                                     <div className="flex items-start pt-1">
                                                         <input type="checkbox" 
@@ -945,7 +1023,7 @@
                                                         </div>
                                                         <h3 className="font-bold text-lg text-gray-800">{req.title}</h3>
                                                         <div className="flex gap-4 text-sm text-gray-600 mt-1">
-                                                            <span>CP: {req.cp || '미지정'}</span>
+                                                            <span>CP: {req.cp || <span className="text-red-400">미지정</span>}</span>
                                                             <span>|</span>
                                                             <span>장르: {req.category}</span>
                                                         </div>
@@ -1075,7 +1153,7 @@
                                         <div className="flex justify-between items-end mb-4"><h4 className="font-bold text-lg flex items-center gap-2"><Icon name="Package"/> 기본 정보 & 메타데이터</h4><button onClick={handleAiMeta} className="text-xs ai-button text-white px-3 py-1 rounded-full font-bold flex items-center gap-1"><Icon name="Sparkles"/> AI 자동채우기</button></div>
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                             <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">타이틀 *</label><input className="w-full border p-2 rounded" value={formData.title} onChange={e=>setFormData({...formData, title:e.target.value})}/></div>
-                                            {/* 🛠 [UI 수정] 원제목 필드 추가 (타이틀 옆 배치) */}
+                                            
                                             <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">원제목 (선택)</label><input className="w-full border p-2 rounded" value={formData.originalTitle} onChange={e=>setFormData({...formData, originalTitle:e.target.value})} placeholder="검색 정확도 향상용"/></div>
                                             
                                             <div>
@@ -1113,7 +1191,6 @@
                                         <div className="flex border-b mb-4"><button onClick={()=>setPricingTab('RENTAL')} className={`px-6 py-2 font-bold text-sm border-b-2 ${pricingTab==='RENTAL'?'border-indigo-600 text-indigo-600':'border-transparent text-gray-400'}`}>대여</button><button onClick={()=>setPricingTab('POSSESSION')} className={`px-6 py-2 font-bold text-sm border-b-2 ${pricingTab==='POSSESSION'?'border-indigo-600 text-indigo-600':'border-transparent text-gray-400'}`}>소장</button></div>
                                         <div className="border rounded-lg overflow-hidden overflow-x-auto">
                                             <table className="w-full text-sm text-left whitespace-nowrap">
-                                                {/* 🛠 [UI 수정] 모바일 대응 최소 너비(min-w) 적용 */}
                                                 <thead className="bg-gray-55 text-gray-600">
                                                     <tr>
                                                         <th className="p-3 min-w-[100px]">유형</th>
@@ -1126,24 +1203,17 @@
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {formData.pricingPolicy
-                                                        // 1️⃣ [중요] 필터링: 현재 선택된 탭(대여/소장)과 모드가 일치하는 것만 남김
                                                         .filter(p => (p.mode || "RENTAL") === pricingTab) 
-                                                        
-                                                        // 2️⃣ [중요] 정렬: 상품 유형 순서대로 정렬 (SPVOD > EPVOD > PVOD > RVOD > LIBRARY)
                                                         .sort((a, b) => {
                                                             const order = { 'SPVOD': 1, 'EPVOD': 2, 'PVOD': 3, 'RVOD': 4, 'LIBRARY': 5 };
                                                             const typeA = (a.type || '').toUpperCase();
                                                             const typeB = (b.type || '').toUpperCase();
-                                                            // 정렬 순서가 같으면(같은 SPVOD끼리 등) 시작일 기준 오름차순 정렬
                                                             if ((order[typeA] || 99) === (order[typeB] || 99)) {
                                                                 return (a.startDate || '').localeCompare(b.startDate || '');
                                                             }
                                                             return (order[typeA] || 99) - (order[typeB] || 99);
                                                         })
-
-                                                        // 3️⃣ 렌더링
                                                         .map((p, i) => {
-                                                            // 원본 배열에서의 정확한 인덱스를 찾음 (수정/삭제 시 엉뚱한 데이터 건드리지 않도록)
                                                             const realIndex = formData.pricingPolicy.indexOf(p);
                                                             
                                                             return (
