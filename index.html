@@ -180,7 +180,7 @@
             const [history, setHistory] = useState([]); 
             const [selectedRequests, setSelectedRequests] = useState([]); 
 
-            // [추가] Requests 필터용 State (CP, Category, Date)
+            // Requests 필터용 State
             const [reqFilterCp, setReqFilterCp] = useState('ALL');
             const [reqFilterCategory, setReqFilterCategory] = useState('ALL');
             const [reqStartDate, setReqStartDate] = useState('');
@@ -214,8 +214,33 @@
             const [currentPage, setCurrentPage] = useState(1);
             const itemsPerPage = 20;
 
-            const CP_LIST = [ "CJ ENM", "롯데 엔터테인먼트", "쇼박스", "NEW", "콘텐츠판다", "케이티알파", "스튜디오산타클로스", "이놀미디어", "나인플래너스", "소니픽쳐스", "유니버설", "워너브라더스", "디즈니", "파라마운트", "더쿱분배", "엣나인필름", "영화사 진진", "티캐스트" ];
-            const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화"];
+            // [변경] CP 목록 하드코딩 제거 -> 동적 생성 로직으로 변경
+            // const CP_LIST = [ ... ]; // 삭제됨
+
+            // [신규] 현재 보유한 데이터 기반으로 CP 목록 동적 생성 (가나다순)
+            const uniqueCpList = useMemo(() => {
+                const cpSet = new Set();
+                
+                // 1. 기존 편성 데이터에서 수집
+                if (Array.isArray(data)) {
+                    data.forEach(item => {
+                        if (item.cp && item.cp !== '-') cpSet.add(item.cp.trim());
+                    });
+                }
+                
+                // 2. (옵션) 요청 목록에서도 수집하고 싶다면 아래 주석 해제 (지금은 관리 데이터 기준)
+                /*
+                if (Array.isArray(requests)) {
+                    requests.forEach(req => {
+                        if (req.cp) cpSet.add(req.cp.trim());
+                    });
+                }
+                */
+
+                return Array.from(cpSet).sort((a, b) => a.localeCompare(b));
+            }, [data]); // data가 바뀔 때만 재계산
+
+            const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화", "성인"]; // 성인 추가
             
             const initialForm = { 
                 title: '', originalTitle: '', cp: '', category: '한국영화', 
@@ -300,7 +325,7 @@
                 if (activeTab === 'requests') fetchRequests();
             }, [activeTab]);
 
-            // [수정] 필터링 로직: CP, Category, Date 모두 체크
+            // 필터링 로직: CP, Category, Date 모두 체크
             const filteredRequests = useMemo(() => {
                 return requests.filter(req => {
                     // 1. CP 필터
@@ -464,7 +489,7 @@
                 setSelectedRequests(prev => prev.includes(id) ? prev.filter(reqId => reqId !== id) : [...prev, id]);
             };
 
-            // [수정] 필터링된 목록 기준으로 전체 선택 로직 변경
+            // 필터링된 목록 기준으로 전체 선택 로직
             const toggleSelectAll = () => {
                 if (filteredRequests.length > 0 && selectedRequests.length === filteredRequests.length) {
                     setSelectedRequests([]);
@@ -855,10 +880,13 @@
                                         </div>
                                         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                                             <select className="border rounded-lg px-3 py-2 text-sm" value={filterCategory} onChange={e=>setFilterCategory(e.target.value)}><option value="ALL">전체 카테고리</option>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select>
+                                            
+                                            {/* [변경] 동적 CP 리스트 사용 */}
                                             <select className="border rounded-lg px-3 py-2 text-sm" value={filterCp} onChange={e=>setFilterCp(e.target.value)}>
                                                 <option value="ALL">전체 CP</option>
-                                                {CP_LIST.map(cp=><option key={cp} value={cp}>{cp}</option>)}
+                                                {uniqueCpList.map(cp=><option key={cp} value={cp}>{cp}</option>)}
                                             </select>
+
                                             <select className="border rounded-lg px-3 py-2 text-sm" value={sortConfig.key} onChange={(e) => setSortConfig({ key: e.target.value, direction: e.target.value === 'id' ? 'desc' : 'asc' })}>
                                                 <option value="id">최신순</option><option value="title">제목순</option><option value="cp">CP사순</option>
                                             </select>
@@ -930,9 +958,9 @@
                                             <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">Gmail 연동</span>
                                         </h1>
                                         
-                                        {/* [신규] 필터 컨트롤 영역 */}
+                                        {/* 필터 컨트롤 영역 */}
                                         <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg border shadow-sm w-full md:w-auto">
-                                            {/* CP 선택 */}
+                                            {/* CP 선택 (동적 리스트) */}
                                             <select 
                                                 value={reqFilterCp} 
                                                 onChange={(e) => setReqFilterCp(e.target.value)}
@@ -940,10 +968,10 @@
                                             >
                                                 <option value="ALL">전체 CP</option>
                                                 <option value="">CP 미지정</option>
-                                                {CP_LIST.map(cp => <option key={cp} value={cp}>{cp}</option>)}
+                                                {uniqueCpList.map(cp => <option key={cp} value={cp}>{cp}</option>)}
                                             </select>
 
-                                            {/* 카테고리 선택 (추가됨) */}
+                                            {/* 카테고리 선택 */}
                                             <select 
                                                 value={reqFilterCategory} 
                                                 onChange={(e) => setReqFilterCategory(e.target.value)}
@@ -1173,7 +1201,8 @@
                                             <div>
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">CP사 *</label>
                                                 <input list="cp-options" className="w-full border p-2 rounded" value={formData.cp} onChange={e=>setFormData({...formData, cp:e.target.value})} placeholder="선택/입력"/>
-                                                <datalist id="cp-options">{CP_LIST.map((cp, i)=><option key={i} value={cp}/>)}</datalist>
+                                                {/* [변경] 동적 CP 리스트로 datalist 생성 */}
+                                                <datalist id="cp-options">{uniqueCpList.map((cp, i)=><option key={i} value={cp}/>)}</datalist>
                                             </div>
                                             <div><label className="block text-xs font-bold mb-1 text-gray-600">카테고리</label><select className="w-full border p-2 rounded" value={formData.category} onChange={e=>setFormData({...formData, category:e.target.value})}>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
                                             <div><label className="block text-xs font-bold mb-1 text-gray-500">평점</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.rating} onChange={e=>setFormData({...formData, rating:e.target.value})} placeholder="8.5"/></div>
@@ -1273,4 +1302,3 @@
     </script>
 </body>
 </html>
-
