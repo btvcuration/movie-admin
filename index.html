@@ -154,6 +154,23 @@
             const sorted = [...validPolicies].sort((a, b) => a.startDate.localeCompare(b.startDate));
             return sorted[0].startDate;
         };
+        // 🔥 [수정 중요] 상수는 컴포넌트 밖으로 뺍니다 (순서 오류 해결)
+        const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화", "성인"];
+        
+        const CATEGORY_COLORS = {
+            "한국영화": "bg-indigo-500",
+            "한국영화애니메이션": "bg-blue-400",
+            "해외영화": "bg-emerald-400",
+            "해외영화애니메이션": "bg-teal-300",
+            "한농협영화": "bg-amber-400",
+            "성인": "bg-red-400",
+            "기타": "bg-gray-300"
+        };
+
+        const DEFAULT_PRICES = {
+            'RENTAL': { 'SPVOD': 10000, 'EPVOD': 7000, 'PVOD': 5000, 'RVOD': 2500, 'LIBRARY': 1400 },
+            'POSSESSION': { 'SPVOD': 14900, 'EPVOD': 9900, 'PVOD': 9900, 'RVOD': 6500, 'LIBRARY': 6500 }
+        };
 
         const AdvancedAdminDashboard = () => {
             const [user, setUser] = useState(null);
@@ -161,7 +178,14 @@
             const [loginEmail, setLoginEmail] = useState("");
             const [loginPw, setLoginPw] = useState("");
             const [loginError, setLoginError] = useState(null);
-
+            const [requests, setRequests] = useState([]);
+            const [history, setHistory] = useState([]); 
+            const [selectedRequests, setSelectedRequests] = useState([]); 
+            const [reqFilterCp, setReqFilterCp] = useState('ALL');
+            const [reqFilterCategories, setReqFilterCategories] = useState(() => 
+                CATEGORY_LIST.filter(c => c !== '성인')
+            );
+            const [isCatFilterOpen, setIsCatFilterOpen] = useState(false);
             const [googleScriptUrl, setGoogleScriptUrl] = useState(() => {
                 const saved = localStorage.getItem('google_script_url');
                 return (saved && saved !== "null" && saved !== "undefined" && saved.trim() !== "") ? saved : DEFAULT_GOOGLE_SCRIPT_URL;
@@ -241,20 +265,6 @@
                 return Array.from(cpSet).sort((a, b) => a.localeCompare(b));
             }, [data]); // data가 바뀔 때만 재계산
 
-            const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화", "성인"]; 
-            const CATEGORY_COLORS = {
-                "한국영화": "bg-indigo-500",
-                "한국영화애니메이션": "bg-blue-400",
-                "해외영화": "bg-emerald-400",
-                "해외영화애니메이션": "bg-teal-300",
-                "한농협영화": "bg-amber-400",
-                "성인": "bg-red-400",
-                "기타": "bg-gray-300"
-            };
-            const DEFAULT_PRICES = {
-                'RENTAL': { 'SPVOD': 10000, 'EPVOD': 7000, 'PVOD': 5000, 'RVOD': 2500, 'LIBRARY': 1400 },
-                'POSSESSION': { 'SPVOD': 14900, 'EPVOD': 9900, 'PVOD': 9900, 'RVOD': 6500, 'LIBRARY': 6500 }
-            };
             const initialForm = { 
                 title: '', originalTitle: '', cp: '', category: '한국영화', 
                 rating: '', boxOffice: '', actors: '', awards: '', prodYear: '', 
@@ -1470,3 +1480,4 @@
     </script>
 </body>
 </html>
+
