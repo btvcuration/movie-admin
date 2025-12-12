@@ -56,6 +56,7 @@
             }
         } catch (e) { console.error("Firebase Init Error:", e); }
 
+        // --- 헬퍼 함수들 (컴포넌트 외부 정의) ---
         const formatDateStandard = (dateStr) => {
             if (!dateStr) return "";
             try {
@@ -154,7 +155,19 @@
             const sorted = [...validPolicies].sort((a, b) => a.startDate.localeCompare(b.startDate));
             return sorted[0].startDate;
         };
-        // 🔥 [수정 중요] 상수는 컴포넌트 밖으로 뺍니다 (순서 오류 해결)
+
+        const checkPolicyTypeDuplication = (policies) => {
+            if (!policies || !Array.isArray(policies)) return null;
+            const checkMap = {}; 
+            for (const p of policies) {
+                const key = `${p.mode}_${p.type}`;
+                if (checkMap[key]) return `중복된 유형 존재: ${p.mode} - ${p.type}`;
+                checkMap[key] = true;
+            }
+            return null;
+        };
+
+        // --- 상수 정의 ---
         const CATEGORY_LIST = ["한국영화", "한국영화애니메이션", "해외영화", "해외영화애니메이션", "한농협영화", "성인"];
         
         const CATEGORY_COLORS = {
@@ -200,7 +213,7 @@
             const [selectedRequests, setSelectedRequests] = useState([]); 
 
             // 3. 필터링 및 UI State
-            // [수정됨] 카테고리 필터 초기화 (성인 제외)
+            // [수정] 다중 선택 카테고리 필터
             const [reqFilterCp, setReqFilterCp] = useState('ALL');
             const [reqFilterCategories, setReqFilterCategories] = useState(() => 
                 CATEGORY_LIST.filter(c => c !== '성인')
@@ -238,18 +251,16 @@
             const [currentPage, setCurrentPage] = useState(1);
             const itemsPerPage = 20;
 
-            // [신규] 현재 보유한 데이터 기반으로 CP 목록 동적 생성 (가나다순)
+            // [신규] CP 목록 동적 생성 (requests 포함)
             const uniqueCpList = useMemo(() => {
                 const cpSet = new Set();
                 
-                // 1. 기존 편성 데이터에서 수집
                 if (Array.isArray(data)) {
                     data.forEach(item => {
                         if (item.cp && item.cp !== '-') cpSet.add(item.cp.trim());
                     });
                 }
                 
-                // 2. (옵션) 요청 목록에서도 수집하고 싶다면 아래 주석 해제 (지금은 관리 데이터 기준)
                 if (Array.isArray(requests)) {
                     requests.forEach(req => {
                         if (req.cp) cpSet.add(req.cp.trim());
@@ -257,7 +268,7 @@
                 }
 
                 return Array.from(cpSet).sort((a, b) => a.localeCompare(b));
-            }, [data]); // data가 바뀔 때만 재계산
+            }, [data, requests]); // data 또는 requests 변경 시 재계산
 
             const initialForm = { 
                 title: '', originalTitle: '', cp: '', category: '한국영화', 
@@ -342,7 +353,7 @@
                 if (activeTab === 'requests') fetchRequests();
             }, [activeTab]);
 
-            // 필터링 로직: CP, Category, Date 모두 체크
+            // [수정 완료] 필터링 로직: reqFilterCategory(오류) -> reqFilterCategories(정상)
             const filteredRequests = useMemo(() => {
                 return requests.filter(req => {
                     // 1. CP 필터
@@ -351,7 +362,7 @@
                     // 2. 카테고리 필터
                     if (!req.category || !reqFilterCategories.includes(req.category)) return false;
 
-                    // 3. 날짜 필터 (timestamp: "YYYY-MM-DD..." 가정)
+                    // 3. 날짜 필터
                     if (reqStartDate || reqEndDate) {
                         if (!req.timestamp) return false;
                         const reqDate = req.timestamp.substring(0, 10);
@@ -360,7 +371,7 @@
                     }
                     return true;
                 });
-            }, [requests, reqFilterCp, reqFilterCategory, reqStartDate, reqEndDate]);
+            }, [requests, reqFilterCp, reqFilterCategories, reqStartDate, reqEndDate]);
 
             const handleLogin = async (e) => {
                 e.preventDefault(); setLoginError(null);
@@ -510,7 +521,6 @@
                 setSelectedRequests(prev => prev.includes(id) ? prev.filter(reqId => reqId !== id) : [...prev, id]);
             };
 
-            // 필터링된 목록 기준으로 전체 선택 로직
             const toggleSelectAll = () => {
                 if (filteredRequests.length > 0 && selectedRequests.length === filteredRequests.length) {
                     setSelectedRequests([]);
@@ -730,9 +740,9 @@
                  if(!confirm("이 요청을 삭제(반려)하시겠습니까?")) return;
                  const targetUrl = googleScriptUrl;
                  await fetch(targetUrl, {
-                     method: 'POST', mode: 'no-cors',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ syncAction: "BATCH_DELETE_REQUESTS", requestIds: [reqId] })
+                      method: 'POST', mode: 'no-cors',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ syncAction: "BATCH_DELETE_REQUESTS", requestIds: [reqId] })
                  });
                  addHistory('REJECT', title, '요청 반려 및 삭제');
                  setRequests(prev => prev.filter(r => r.id !== reqId));
@@ -757,17 +767,7 @@
                 }
                 setFormData(prev => ({ ...prev, ...newBtv, pricingPolicy: [...existingPolicies, ...newPol] }));
             };
-            const checkPolicyTypeDuplication = (policies) => {
-                if (!policies || !Array.isArray(policies)) return null;
-                const checkMap = {}; // { "RENTAL_SPVOD": true, ... }
-    
-                for (const p of policies) {
-                    const key = `${p.mode}_${p.type}`;
-                    if (checkMap[key]) return `중복된 유형 존재: ${p.mode} - ${p.type}`;
-                    checkMap[key] = true;
-                }
-                return null;
-            };
+            
             const updatePolicy = (i, f, v) => { 
                 const p = [...formData.pricingPolicy]; 
                 p[i][f] = v;
@@ -901,69 +901,57 @@
                                     </div>
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                         <div className="bg-white p-6 rounded-xl border">
-                                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Icon name="BarChart"/> 월별 신규 편성 (최근 6개월)</h3>
-                                            {/* [수정 5번] 대시보드 그래프 영역: 월별 + 장르별 스택 그래프 */}
-                                            <div className="bg-white p-6 rounded-xl border">
-                                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                                                    <Icon name="BarChart"/> 월별 신규 편성 (최근 6개월)
-                                                </h3>
+                                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                                                <Icon name="BarChart"/> 월별 신규 편성 (최근 6개월)
+                                            </h3>
 
-                                                {/* 그래프 메인 영역 */}
-                                                <div className="flex items-end justify-between h-[250px] pt-4 gap-2 border-b relative">
-                                                    {monthlyStats.map((m, i) => {
-                                                        // 1. 전체 막대 높이 계산 (최대값 기준 비율)
-                                                        const maxTotal = Math.max(...monthlyStats.map(x => x.total)) || 1;
-                                                        const heightPercent = m.total > 0 ? Math.max((m.total / maxTotal) * 100, 5) : 1; 
-                                            
-                                                        return (
-                                                            <div key={i} className="flex flex-col items-center flex-1 group relative h-full justify-end">
-                                                                {/* 막대 컨테이너: 전체 높이 설정 */}
-                                                                <div 
-                                                                    className="w-full rounded-t overflow-hidden relative flex flex-col-reverse bg-gray-100" 
-                                                                    style={{ height: `${heightPercent}%` }}
-                                                                >
-                                                                    {/* 2. 장르별 세그먼트 쌓기 */}
-                                                                    {Object.entries(m.categories).map(([cat, count], idx) => {
-                                                                        // 세그먼트 높이: 해당 월 전체 편수 대비 비율 (예: 전체 10편 중 액션 5편 = 50%)
-                                                                        const segHeight = (count / m.total) * 100;
-                            
-                                                                        // 상단에 정의한 CATEGORY_COLORS 상수를 사용하여 색상 지정
-                                                                        return (
-                                                                            <div 
-                                                                                key={idx} 
-                                                                                className={`${CATEGORY_COLORS[cat] || 'bg-gray-400'} w-full transition-all duration-500 relative hover:opacity-80`}
-                                                                                style={{ height: `${segHeight}%` }}
-                                                                                title={`${cat}: ${count}건`} // 마우스 오버 시 툴팁 역할
-                                                                            >
-                                                                            </div>
-                                                                        )
-                                                                    })}
-                                                                </div>
-
-                                                                {/* 막대 위 총 개수 표시 (마우스 오버 시 등장) */}
-                                                                {m.total > 0 && (
-                                                                    <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition">
-                                                                        {m.total}
-                                                                    </span>
-                                                                )}
-                    
-                                                                {/* 월 라벨 */}
-                                                                <span className="text-xs text-gray-500 mt-2">{m.label}</span>
+                                            {/* 그래프 메인 영역 */}
+                                            <div className="flex items-end justify-between h-[250px] pt-4 gap-2 border-b relative">
+                                                {monthlyStats.map((m, i) => {
+                                                    const maxTotal = Math.max(...monthlyStats.map(x => x.total)) || 1;
+                                                    const heightPercent = m.total > 0 ? Math.max((m.total / maxTotal) * 100, 5) : 1; 
+                                                
+                                                    return (
+                                                        <div key={i} className="flex flex-col items-center flex-1 group relative h-full justify-end">
+                                                            <div 
+                                                                className="w-full rounded-t overflow-hidden relative flex flex-col-reverse bg-gray-100" 
+                                                                style={{ height: `${heightPercent}%` }}
+                                                            >
+                                                                {Object.entries(m.categories).map(([cat, count], idx) => {
+                                                                    const segHeight = (count / m.total) * 100;
+                                                                    return (
+                                                                        <div 
+                                                                            key={idx} 
+                                                                            className={`${CATEGORY_COLORS[cat] || 'bg-gray-400'} w-full transition-all duration-500 relative hover:opacity-80`}
+                                                                            style={{ height: `${segHeight}%` }}
+                                                                            title={`${cat}: ${count}건`}
+                                                                        >
+                                                                        </div>
+                                                                    )
+                                                                })}
                                                             </div>
-                                                        );
-                                                    })}
-                                                </div>
 
-                                                {/* [추가] 하단 범례 (Legend) 표시 */}
-                                                <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                                                    {Object.keys(CATEGORY_COLORS).map(cat => (
-                                                        <div key={cat} className="flex items-center gap-1 text-[10px] text-gray-500">
-                                                            <span className={`w-2 h-2 rounded-full ${CATEGORY_COLORS[cat]}`}></span>
-                                                            {cat}
+                                                            {m.total > 0 && (
+                                                                <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition">
+                                                                        {m.total}
+                                                                </span>
+                                                            )}
+                                                
+                                                            <span className="text-xs text-gray-500 mt-2">{m.label}</span>
                                                         </div>
-                                                    ))}
-                                                </div>
+                                                    );
+                                                })}
                                             </div>
+
+                                            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                                                {Object.keys(CATEGORY_COLORS).map(cat => (
+                                                    <div key={cat} className="flex items-center gap-1 text-[10px] text-gray-500">
+                                                        <span className={`w-2 h-2 rounded-full ${CATEGORY_COLORS[cat]}`}></span>
+                                                        {cat}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
                                         <div className="bg-white p-6 rounded-xl border flex flex-col">
                                             <h3 className="font-bold text-lg mb-4 flex items-center gap-2 justify-between"><span className="flex items-center gap-2"><Icon name="PlayCircle" className="text-green-600"/> 금일 신규 편성 ({newReleaseList.length}건)</span></h3>
                                             <div className="flex-1 overflow-y-auto pr-2 space-y-2 max-h-[250px]">
@@ -994,7 +982,6 @@
                                         <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                                             <select className="border rounded-lg px-3 py-2 text-sm" value={filterCategory} onChange={e=>setFilterCategory(e.target.value)}><option value="ALL">전체 카테고리</option>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select>
                                             
-                                            {/* [변경] 동적 CP 리스트 사용 */}
                                             <select className="border rounded-lg px-3 py-2 text-sm" value={filterCp} onChange={e=>setFilterCp(e.target.value)}>
                                                 <option value="ALL">전체 CP</option>
                                                 {uniqueCpList.map(cp=><option key={cp} value={cp}>{cp}</option>)}
@@ -1073,7 +1060,7 @@
                                         
                                         {/* 필터 컨트롤 영역 */}
                                         <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg border shadow-sm w-full md:w-auto">
-                                            {/* CP 선택 (동적 리스트) */}
+                                            {/* CP 선택 */}
                                             <select 
                                                 value={reqFilterCp} 
                                                 onChange={(e) => setReqFilterCp(e.target.value)}
@@ -1084,7 +1071,7 @@
                                                 {uniqueCpList.map(cp => <option key={cp} value={cp}>{cp}</option>)}
                                             </select>
 
-                                            {/* [변경] 카테고리 멀티 셀렉트 필터 */}
+                                            {/* 카테고리 멀티 셀렉트 필터 */}
                                             <div className="relative">
                                                 <button 
                                                     onClick={() => setIsCatFilterOpen(!isCatFilterOpen)}
@@ -1136,10 +1123,10 @@
                                                 />
                                             </div>
 
-                                            {/* 초기화 버튼 */}
-                                            {(reqFilterCp !== 'ALL' || reqFilterCategory !== 'ALL' || reqStartDate || reqEndDate) && (
+                                            {/* [수정 완료] 초기화 버튼 로직 수정 */}
+                                            {(reqFilterCp !== 'ALL' || reqFilterCategories.length < CATEGORY_LIST.length || reqStartDate || reqEndDate) && (
                                                 <button 
-                                                    onClick={() => { setReqFilterCp('ALL'); setReqFilterCategory('ALL'); setReqStartDate(''); setReqEndDate(''); }}
+                                                    onClick={() => { setReqFilterCp('ALL'); setReqFilterCategories(CATEGORY_LIST); setReqStartDate(''); setReqEndDate(''); }}
                                                     className="ml-auto md:ml-0 text-xs text-gray-500 underline hover:text-indigo-600 px-2"
                                                 >
                                                     필터 초기화
@@ -1148,7 +1135,7 @@
                                         </div>
                                     </div>
 
-                                    {/* 일괄 작업 버튼 (선택된 항목이 있을 때만 표시) */}
+                                    {/* 일괄 작업 버튼 */}
                                     {selectedRequests.length > 0 && (
                                         <div className="mb-4 flex items-center gap-3 bg-indigo-600 text-white px-4 py-3 rounded-lg shadow animate-in fade-in slide-in-from-top-2">
                                             <span className="font-bold text-sm">{selectedRequests.length}건 선택됨</span>
@@ -1159,7 +1146,7 @@
                                         </div>
                                     )}
 
-                                    {/* 전체 선택 체크박스 (필터링 결과 기준) */}
+                                    {/* 전체 선택 체크박스 */}
                                     <div className="mb-4 flex items-center gap-2 px-1">
                                         <input type="checkbox" id="selectAll" 
                                             checked={filteredRequests.length > 0 && selectedRequests.length === filteredRequests.length} 
@@ -1178,8 +1165,8 @@
                                             <div className="text-center py-20 text-gray-400 bg-white rounded-xl border">
                                                 <Icon name="Inbox" size={48} className="mx-auto mb-4 opacity-20"/>
                                                 <p>조건에 맞는 요청 내역이 없습니다.</p>
-                                                {(reqFilterCp !== 'ALL' || reqFilterCategory !== 'ALL' || reqStartDate || reqEndDate) ? 
-                                                    <p className="text-xs mt-2 text-indigo-500 cursor-pointer" onClick={() => { setReqFilterCp('ALL'); setReqFilterCategory('ALL'); setReqStartDate(''); setReqEndDate(''); }}>필터 초기화하기</p> :
+                                                {(reqFilterCp !== 'ALL' || reqFilterCategories.length < CATEGORY_LIST.length || reqStartDate || reqEndDate) ? 
+                                                    <p className="text-xs mt-2 text-indigo-500 cursor-pointer" onClick={() => { setReqFilterCp('ALL'); setReqFilterCategories(CATEGORY_LIST); setReqStartDate(''); setReqEndDate(''); }}>필터 초기화하기</p> :
                                                     <p className="text-xs mt-2">btvcuration@gmail.com 으로 메일이 오면 자동으로 표시됩니다.</p>
                                                 }
                                             </div>
@@ -1337,7 +1324,6 @@
                                             <div>
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">CP사 *</label>
                                                 <input list="cp-options" className="w-full border p-2 rounded" value={formData.cp} onChange={e=>setFormData({...formData, cp:e.target.value})} placeholder="선택/입력"/>
-                                                {/* [변경] 동적 CP 리스트로 datalist 생성 */}
                                                 <datalist id="cp-options">{uniqueCpList.map((cp, i)=><option key={i} value={cp}/>)}</datalist>
                                             </div>
                                             <div><label className="block text-xs font-bold mb-1 text-gray-600">카테고리</label><select className="w-full border p-2 rounded" value={formData.category} onChange={e=>setFormData({...formData, category:e.target.value})}>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
@@ -1382,9 +1368,7 @@
                                                 </thead>
                                                 <tbody className="divide-y">
                                                     {formData.pricingPolicy
-                                                        // 1. 현재 탭(대여/소장)에 맞는 정책만 필터링
                                                         .filter(p => (p.mode || "RENTAL") === pricingTab)
-                                                        // 2. 정렬 로직 (기존 유지)
                                                         .sort((a, b) => {
                                                             const order = { 'SPVOD': 1, 'EPVOD': 2, 'PVOD': 3, 'RVOD': 4, 'LIBRARY': 5 };
                                                             const typeA = (a.type || '').toUpperCase();
@@ -1395,12 +1379,10 @@
                                                             return (order[typeA] || 99) - (order[typeB] || 99);
                                                         })
                                                         .map((p, i) => {
-                                                            // 원본 배열에서의 실제 인덱스를 찾음
                                                             const realIndex = formData.pricingPolicy.indexOf(p);
                                                             
                                                             return (
                                                                 <tr key={realIndex}>
-                                                                    {/* [수정 6번 적용됨] 유형 선택 셀 (중복 방지) */}
                                                                     <td className="p-2">
                                                                         <select 
                                                                             className="w-full border p-1.5 rounded" 
@@ -1408,7 +1390,6 @@
                                                                             onChange={e=>updatePolicy(realIndex,'type',e.target.value)}
                                                                         >
                                                                             {['SPVOD', 'EPVOD', 'PVOD', 'RVOD', 'LIBRARY'].map(opt => {
-                                                                                // 중복 체크: 같은 모드이면서, 다른 행에서 이미 쓰고 있는 타입인지 확인
                                                                                 const isSelected = formData.pricingPolicy.some((policy, idx) => 
                                                                                     policy.mode === p.mode && 
                                                                                     policy.type === opt && 
@@ -1422,24 +1403,18 @@
                                                                             })}
                                                                         </select>
                                                                     </td>
-
-                                                                    {/* 가격 입력 */}
                                                                     <td className="p-2">
                                                                         <input type="number" step="1000" className="w-full border p-1.5 rounded text-right" value={p.price} onChange={e=>updatePolicy(realIndex,'price',e.target.value)}/>
                                                                     </td>
-                                                                    {/* 시작일 입력 */}
                                                                     <td className="p-2">
                                                                         <input type="date" className="w-full border p-1.5 rounded" value={p.startDate} onChange={e=>updatePolicy(realIndex,'startDate',e.target.value)}/>
                                                                     </td>
-                                                                    {/* 종료일 입력 */}
                                                                     <td className="p-2">
                                                                         <input type="date" className="w-full border p-1.5 rounded" value={p.endDate} onChange={e=>updatePolicy(realIndex,'endDate',e.target.value)}/>
                                                                     </td>
-                                                                    {/* 기간 표시 */}
                                                                     <td className="p-2 text-center text-xs text-gray-500">
                                                                         {getDuration(p.startDate, p.endDate)}
                                                                     </td>
-                                                                    {/* 삭제 버튼 */}
                                                                     <td className="p-2 text-center">
                                                                         <button onClick={()=>removePolicy(realIndex)} className="text-red-500 hover:text-red-700 font-bold">삭제</button>
                                                                     </td>
@@ -1474,5 +1449,3 @@
     </script>
 </body>
 </html>
-
-
