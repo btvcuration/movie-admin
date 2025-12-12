@@ -549,6 +549,12 @@
                 showToast("일괄 삭제 완료");
             };
 
+            // [추가] 모달 닫기 핸들러: 에러 상태도 함께 초기화
+            const handleCloseModal = () => {
+                setIsModalOpen(false);
+                setValidationError(null);
+            };
+
             const handleSave = () => {
                 setValidationError(null);
                 if (!formData.title || !formData.cp) return setValidationError('필수값 누락');
@@ -586,7 +592,7 @@
                     setPendingRequestId(null);
                 }
                 
-                setIsModalOpen(false);
+                handleCloseModal(); // 저장 성공 시에도 초기화하며 닫기
                 showToast('저장됨');
             };
 
@@ -731,6 +737,7 @@
                 setCurrentMode('add');
                 setIsModalOpen(true);
                 setPendingRequestId(req.id);
+                setValidationError(null); // [수정] 요청 승인 창 열 때 에러 초기화 추가
                 
                 if (Object.keys(aiData).length > 3) showToast("✨ AI 분석 데이터가 자동 입력되었습니다.");
                 else showToast("기본 정보가 입력되었습니다.");
@@ -1311,7 +1318,8 @@
                                 )}
                                 <div className="p-6 border-b flex justify-between bg-white rounded-t-xl shrink-0">
                                     <h3 className="font-bold text-xl">{currentMode==='add'?'신규 등록':'정보 수정'}</h3>
-                                    <button onClick={()=>setIsModalOpen(false)}><Icon name="X"/></button>
+                                    {/* [수정] 닫기 버튼: handleCloseModal 사용 */}
+                                    <button onClick={handleCloseModal}><Icon name="X"/></button>
                                 </div>
                                 <div className="p-8 space-y-8 overflow-y-auto">
                                     <section>
@@ -1434,7 +1442,8 @@
                                 </div>
                                 <div className="p-6 border-t flex flex-col bg-gray-50 rounded-b-xl shrink-0">
                                     {validationError && (<div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded text-sm whitespace-pre-line"><strong className="flex items-center gap-1"><Icon name="AlertTriangle" size={14}/> 저장 불가:</strong> {validationError}</div>)}
-                                    <div className="flex justify-end gap-3"><button onClick={()=>setIsModalOpen(false)} className="px-6 py-2 border rounded font-bold hover:bg-white transition">취소</button><button onClick={handleSave} className="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow hover:bg-indigo-700 transition">저장하기</button></div>
+                                    {/* [수정] 취소 버튼: handleCloseModal 사용 */}
+                                    <div className="flex justify-end gap-3"><button onClick={handleCloseModal} className="px-6 py-2 border rounded font-bold hover:bg-white transition">취소</button><button onClick={handleSave} className="px-6 py-2 bg-indigo-600 text-white rounded font-bold shadow hover:bg-indigo-700 transition">저장하기</button></div>
                                 </div>
                             </div>
                         </div>
