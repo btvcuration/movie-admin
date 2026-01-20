@@ -810,57 +810,85 @@
 
             const applyAutoHoldback = (baseDate, mode) => {
                 if (!baseDate) return;
-                
-                const existingPolicies = formData.pricingPolicy.filter(p => p.mode !== mode);
-                const cpName = formData.cp || "";
-                const startDay = baseDate;
-
-                let newPol = [];
-
-                if (mode === "RENTAL") {
-                    // [대여] 기존 로직 유지
-                    const epEnd = addDays(startDay, 27);
+            
+                const cpName = (formData.cp || "").trim();
+                const existingPolicies = formData.pricingPolicy || [];
+            
+                // 1. 기존 SPVOD 보존 (요청사항 4번 해결)
+                const spvodPolicy = existingPolicies.find(p => p.type === 'SPVOD' && p.mode === mode);
+            
+                let newPolicies = [];
+                let btvBaseDate = ''; // B tv+ 계산의 뿌리가 되는 날짜
+            
+                if (spvodPolicy) {
+                    // [Case A] SPVOD가 있는 경우 -> EPVOD부터 시작
+                    const epStart = addDays(spvodPolicy.endDate, 1);
+                    const epEnd = addDays(epStart, 27);
+            
                     const pvStart = addDays(epEnd, 1);
-                    const pvEnd = addDays(startDay, 89);
+                    const pvEnd = addDays(epStart, 89); // 규칙: EPVOD 시작일 기준 + 89일
+            
                     const rvStart = addDays(pvEnd, 1);
-
-                    newPol = [
-                        { mode: "RENTAL", type: "EPVOD", price: 7000, startDate: startDay, endDate: epEnd },
-                        { mode: "RENTAL", type: "PVOD", price: 5000, startDate: pvStart, endDate: pvEnd },
-                        { mode: "RENTAL", type: "RVOD", price: 2500, startDate: rvStart, endDate: "9999-12-31" }
+                    const rvEnd = addDays(rvStart, 179);
+            
+                    newPolicies = [
+                        spvodPolicy, // 기존 SPVOD 유지
+                        { mode, type: 'EPVOD', price: DEFAULT_PRICES[mode]['EPVOD'], startDate: epStart, endDate: epEnd },
+                        { mode, type: 'PVOD', price: DEFAULT_PRICES[mode]['PVOD'], startDate: pvStart, endDate: pvEnd },
+                        { mode, type: 'RVOD', price: DEFAULT_PRICES[mode]['RVOD'], startDate: rvStart, endDate: rvEnd },
+                        { mode, type: 'LIBRARY', price: DEFAULT_PRICES[mode]['LIBRARY'], startDate: addDays(rvEnd, 1), endDate: '9999-12-31' }
                     ];
+                    btvBaseDate = epStart; // EPVOD 진행 시 모든 기준은 EPVOD 시작일
                 } else {
-                    // [소장] 수정됨: SPVOD(1.5만) -> EPVOD(1만) -> PVOD(1만)
-                    
-                    // 1. SPVOD: 15,000원 (21일간)
-                    const spEnd = addDays(startDay, 21);
-                    
-                    // 2. EPVOD: 10,000원 (22일 ~ 27일, 4주차 채움)
-                    const epStart = addDays(spEnd, 1);
-                    const epEnd = addDays(startDay, 27);
-
-                    // 3. PVOD: 10,000원 (28일 이후 계속)
-                    const pvStart = addDays(epEnd, 1);
-
-                    newPol = [
-                        { mode: "POSSESSION", type: "SPVOD", price: 15000, startDate: startDay, endDate: spEnd },
-                        { mode: "POSSESSION", type: "EPVOD", price: 10000, startDate: epStart, endDate: epEnd },
-                        { mode: "POSSESSION", type: "PVOD", price: 10000, startDate: pvStart, endDate: "9999-12-31" }
+                    // [Case B] SPVOD가 없는 경우 -> PVOD부터 시작 (요청사항)
+                    const pvStart = baseDate;
+                    const pvEnd = addDays(pvStart, 89);
+            
+                    const rvStart = addDays(pvEnd, 1);
+                    const rvEnd = addDays(rvStart, 179);
+            
+                    newPolicies = [
+                        { mode, type: 'PVOD', price: DEFAULT_PRICES[mode]['PVOD'], startDate: pvStart, endDate: pvEnd },
+                        { mode, type: 'RVOD', price: DEFAULT_PRICES[mode]['RVOD'], startDate: rvStart, endDate: rvEnd },
+                        { mode, type: 'LIBRARY', price: DEFAULT_PRICES[mode]['LIBRARY'], startDate: addDays(rvEnd, 1), endDate: '9999-12-31' }
                     ];
+                    btvBaseDate = pvStart; // EPVOD 미진행 시 PVOD 시작일 기준
                 }
-
-                // B tv+ 편성 로직 (렌탈일 경우만 적용)
-                let newBtv = {};
-                if (mode === "RENTAL") { 
-                    const epEnd = addDays(startDay, 27);
-                    const pvStart = addDays(epEnd, 1);
-                    
-                    let btvBase = cpName.includes("스튜디오산타") ? pvStart : startDay;
-                    let avail = cpName.includes("CJ ENM") ? addMonths(btvBase, 9) : (["롯데 엔터", "쇼박스", "콘텐츠판다", "케이티알파", "롯데"].some(c => cpName.includes(c)) ? addDays(btvBase, 42) : btvBase);
-                    newBtv = { btvPlusStatus: 'Y', btvPlusAvailableDate: avail, btvPlusActualDate: getNextTueOrFri(avail) };
+            
+                // 2. B tv+ 편성 로직 (국내 CP 특화)
+                let btvUpdate = {};
+                if (cpName) {
+                    let availDate = btvBaseDate;
+            
+                    // 예외: 스튜디오산타는 EPVOD 여부와 상관없이 PVOD 시작일 기준
+                    if (cpName.includes("스튜디오산타")) {
+                        const pvod = newPolicies.find(p => p.type === 'PVOD');
+                        availDate = pvod ? pvod.startDate : btvBaseDate;
+                    } 
+                    else if (cpName.includes("CJ ENM")) {
+                        availDate = addMonths(btvBaseDate, 9);
+                    } 
+                    else if (["롯데", "쇼박스", "콘텐츠판다", "케이티알파"].some(c => cpName.includes(c))) {
+                        availDate = addDays(btvBaseDate, 42);
+                    }
+                    // 그 외 기타 국내 CP는 availDate = btvBaseDate 유지
+            
+                    btvUpdate = {
+                        btvPlusStatus: 'Y',
+                        btvPlusAvailableDate: availDate,
+                        btvPlusActualDate: getNextTueOrFri(availDate) // 화, 금 보정 함수 사용
+                    };
                 }
-
-                setFormData(prev => ({ ...prev, ...newBtv, pricingPolicy: [...existingPolicies, ...newPol] }));
+            
+                // 3. 결과 합치기 (현재 모드 외의 정책은 보존)
+                const otherModePolicies = existingPolicies.filter(p => p.mode !== mode);
+                setFormData(prev => ({
+                    ...prev,
+                    ...btvUpdate,
+                    pricingPolicy: [...otherModePolicies, ...newPolicies]
+                }));
+                
+                showToast(`📅 ${cpName} 기준 자동 스케줄링 완료`);
             };
             
             const updatePolicy = (i, f, v) => { 
@@ -1679,3 +1707,4 @@
     </script>
 </body>
 </html>
+
