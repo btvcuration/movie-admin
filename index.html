@@ -809,28 +809,38 @@
             };
 
             const applyAutoHoldback = (baseDate, mode) => {
-                if (!baseDate) return;
-            
                 const cpName = (formData.cp || "").trim();
                 const existingPolicies = formData.pricingPolicy || [];
-            
-                // 1. 기존 SPVOD 보존 (요청사항 4번 해결)
+                
+                // 1. 기존 SPVOD가 있는지 확인
                 const spvodPolicy = existingPolicies.find(p => p.type === 'SPVOD' && p.mode === mode);
-            
-                let newPolicies = [];
-                let btvBaseDate = ''; // B tv+ 계산의 뿌리가 되는 날짜
-            
+                
+                let effectiveBaseDate = baseDate;
+
+                // [핵심 수정] SPVOD가 있으면, 버튼에서 날짜를 안 보내줘도(null) 알아서 종료일+1로 설정함
                 if (spvodPolicy) {
-                    // [Case A] SPVOD가 있는 경우 -> EPVOD부터 시작
-                    const epStart = addDays(spvodPolicy.endDate, 1);
+                    if (!spvodPolicy.endDate || spvodPolicy.endDate === '9999-12-31') {
+                        alert("SPVOD의 종료일을 먼저 정확한 날짜로 입력해주세요.");
+                        return;
+                    }
+                    effectiveBaseDate = addDays(spvodPolicy.endDate, 1);
+                }
+
+                // SPVOD도 없고, 날짜 선택도 안 했다면 여기서 종료
+                if (!effectiveBaseDate) return;
+
+                let newPolicies = [];
+                let btvBaseDate = ''; 
+
+                if (spvodPolicy) {
+                    // [Case A] SPVOD 있음 -> EPVOD부터 시작
+                    const epStart = effectiveBaseDate;
                     const epEnd = addDays(epStart, 27);
-            
                     const pvStart = addDays(epEnd, 1);
-                    const pvEnd = addDays(epStart, 89); // 규칙: EPVOD 시작일 기준 + 89일
-            
+                    const pvEnd = addDays(epStart, 89);
                     const rvStart = addDays(pvEnd, 1);
                     const rvEnd = addDays(rvStart, 179);
-            
+
                     newPolicies = [
                         spvodPolicy, // 기존 SPVOD 유지
                         { mode, type: 'EPVOD', price: DEFAULT_PRICES[mode]['EPVOD'], startDate: epStart, endDate: epEnd },
@@ -838,57 +848,48 @@
                         { mode, type: 'RVOD', price: DEFAULT_PRICES[mode]['RVOD'], startDate: rvStart, endDate: rvEnd },
                         { mode, type: 'LIBRARY', price: DEFAULT_PRICES[mode]['LIBRARY'], startDate: addDays(rvEnd, 1), endDate: '9999-12-31' }
                     ];
-                    btvBaseDate = epStart; // EPVOD 진행 시 모든 기준은 EPVOD 시작일
+                    btvBaseDate = epStart; 
                 } else {
-                    // [Case B] SPVOD가 없는 경우 -> PVOD부터 시작 (요청사항)
-                    const pvStart = baseDate;
+                    // [Case B] SPVOD 없음 -> PVOD부터 시작
+                    const pvStart = effectiveBaseDate;
                     const pvEnd = addDays(pvStart, 89);
-            
                     const rvStart = addDays(pvEnd, 1);
                     const rvEnd = addDays(rvStart, 179);
-            
+
                     newPolicies = [
                         { mode, type: 'PVOD', price: DEFAULT_PRICES[mode]['PVOD'], startDate: pvStart, endDate: pvEnd },
                         { mode, type: 'RVOD', price: DEFAULT_PRICES[mode]['RVOD'], startDate: rvStart, endDate: rvEnd },
                         { mode, type: 'LIBRARY', price: DEFAULT_PRICES[mode]['LIBRARY'], startDate: addDays(rvEnd, 1), endDate: '9999-12-31' }
                     ];
-                    btvBaseDate = pvStart; // EPVOD 미진행 시 PVOD 시작일 기준
+                    btvBaseDate = pvStart;
                 }
-            
-                // 2. B tv+ 편성 로직 (국내 CP 특화)
+
+                // B tv+ 편성 로직
                 let btvUpdate = {};
                 if (cpName) {
                     let availDate = btvBaseDate;
-            
-                    // 예외: 스튜디오산타는 EPVOD 여부와 상관없이 PVOD 시작일 기준
                     if (cpName.includes("스튜디오산타")) {
                         const pvod = newPolicies.find(p => p.type === 'PVOD');
                         availDate = pvod ? pvod.startDate : btvBaseDate;
-                    } 
-                    else if (cpName.includes("CJ ENM")) {
+                    } else if (cpName.includes("CJ ENM")) {
                         availDate = addMonths(btvBaseDate, 9);
-                    } 
-                    else if (["롯데", "쇼박스", "콘텐츠판다", "케이티알파"].some(c => cpName.includes(c))) {
+                    } else if (["롯데", "쇼박스", "콘텐츠판다", "케이티알파"].some(c => cpName.includes(c))) {
                         availDate = addDays(btvBaseDate, 42);
                     }
-                    // 그 외 기타 국내 CP는 availDate = btvBaseDate 유지
-            
                     btvUpdate = {
                         btvPlusStatus: 'Y',
                         btvPlusAvailableDate: availDate,
-                        btvPlusActualDate: getNextTueOrFri(availDate) // 화, 금 보정 함수 사용
+                        btvPlusActualDate: getNextTueOrFri(availDate)
                     };
                 }
-            
-                // 3. 결과 합치기 (현재 모드 외의 정책은 보존)
+
                 const otherModePolicies = existingPolicies.filter(p => p.mode !== mode);
                 setFormData(prev => ({
                     ...prev,
                     ...btvUpdate,
                     pricingPolicy: [...otherModePolicies, ...newPolicies]
                 }));
-                
-                showToast(`📅 ${cpName} 기준 자동 스케줄링 완료`);
+                showToast(`📅 자동 스케줄링 완료`);
             };
             
             const updatePolicy = (i, f, v) => { 
@@ -1740,4 +1741,5 @@
     </script>
 </body>
 </html>
+
 
