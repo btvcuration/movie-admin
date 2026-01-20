@@ -263,11 +263,6 @@
             
             const [currentPage, setCurrentPage] = useState(1);
             const itemsPerPage = 20;
-            
-            const [reqStartDate, setReqStartDate] = useState('');
-            const [reqEndDate, setReqEndDate] = useState('');
-            
-            const [reqSearchTerm, setReqSearchTerm] = useState('');
 
             const uniqueCpList = useMemo(() => {
                 const cpSet = new Set();
@@ -377,28 +372,19 @@
                 if (activeTab === 'requests') fetchRequests();
             }, [activeTab]);
 
-        const filteredRequests = useMemo(() => {
+            const filteredRequests = useMemo(() => {
                 return requests.filter(req => {
-                    // 1. CP 필터
                     if (reqFilterCp !== 'ALL' && req.cp !== reqFilterCp) return false;
-                    // 2. 카테고리 필터
                     if (!req.category || !reqFilterCategories.includes(req.category)) return false;
-                    // 3. 날짜 필터
                     if (reqStartDate || reqEndDate) {
                         if (!req.timestamp) return false;
                         const reqDate = req.timestamp.substring(0, 10);
                         if (reqStartDate && reqDate < reqStartDate) return false;
                         if (reqEndDate && reqDate > reqEndDate) return false;
                     }
-                    
-                    // 👉 [수정됨] 타이틀 검색 필터 (안전장치 추가: title이 없으면 빈문자열로 처리)
-                    const title = req.title ? String(req.title).toLowerCase() : '';
-                    const search = reqSearchTerm.toLowerCase();
-                    if (reqSearchTerm && !title.includes(search)) return false;
-
                     return true;
                 });
-            }, [requests, reqFilterCp, reqFilterCategories, reqStartDate, reqEndDate, reqSearchTerm]);
+            }, [requests, reqFilterCp, reqFilterCategories, reqStartDate, reqEndDate]);
 
             const handleLogin = async (e) => {
                 e.preventDefault(); setLoginError(null);
@@ -1277,7 +1263,7 @@
                                                 <option value="">CP 미지정</option>
                                                 {uniqueCpList.map(cp => <option key={cp} value={cp}>{cp}</option>)}
                                             </select>
-    
+
                                             {/* 카테고리 멀티 셀렉트 필터 */}
                                             <div className="relative">
                                                 <button 
@@ -1287,7 +1273,7 @@
                                                     <span>카테고리 ({reqFilterCategories.length})</span>
                                                     <Icon name="ChevronDown" size={12}/>
                                                 </button>
-            
+    
                                                 {isCatFilterOpen && (
                                                     <>
                                                         <div className="fixed inset-0 z-10" onClick={() => setIsCatFilterOpen(false)}></div>
@@ -1330,28 +1316,9 @@
                                                 />
                                             </div>
 
-                                            {/* 👉 [추가됨] 타이틀 검색 입력창 */}
-                                            <div className="relative">
-                                                <Icon name="Search" className="absolute left-2.5 top-2 text-gray-400" size={14}/>
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="요청 타이틀 검색..." 
-                                                    value={reqSearchTerm}
-                                                    onChange={(e) => setReqSearchTerm(e.target.value)}
-                                                    className="pl-8 border rounded px-2 py-1.5 text-sm bg-gray-50 focus:bg-white transition outline-none w-32 md:w-auto focus:w-48"
-                                                />
-                                            </div>
-
-                                            {/* 초기화 버튼 (조건에 reqSearchTerm 추가됨) */}
-                                            {(reqFilterCp !== 'ALL' || reqFilterCategories.length < CATEGORY_LIST.length || reqStartDate || reqEndDate || reqSearchTerm) && (
+                                            {(reqFilterCp !== 'ALL' || reqFilterCategories.length < CATEGORY_LIST.length || reqStartDate || reqEndDate) && (
                                                 <button 
-                                                    onClick={() => { 
-                                                        setReqFilterCp('ALL'); 
-                                                        setReqFilterCategories(CATEGORY_LIST); 
-                                                        setReqStartDate(''); 
-                                                        setReqEndDate(''); 
-                                                        setReqSearchTerm(''); // 검색어 초기화
-                                                    }}
+                                                    onClick={() => { setReqFilterCp('ALL'); setReqFilterCategories(CATEGORY_LIST); setReqStartDate(''); setReqEndDate(''); }}
                                                     className="ml-auto md:ml-0 text-xs text-gray-500 underline hover:text-indigo-600 px-2"
                                                 >
                                                     필터 초기화
