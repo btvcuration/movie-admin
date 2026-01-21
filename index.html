@@ -264,6 +264,9 @@
             const [currentPage, setCurrentPage] = useState(1);
             const itemsPerPage = 20;
             const [reqSearchTerm, setReqSearchTerm] = useState('');
+            const [koficCandidates, setKoficCandidates] = useState([]); // 검색된 영화 후보 리스트
+            const [showCandidateList, setShowCandidateList] = useState(false); // 리스트 표시 여부
+            const [isSearchingKofic, setIsSearchingKofic] = useState(false); // 검색 로딩 상태
 
             const uniqueCpList = useMemo(() => {
                 const cpSet = new Set();
@@ -807,6 +810,111 @@
                     }
                 }
                 setIsAiLoading(false);
+            };
+            // ---------------------------------------------------------
+            // [신규 기능 1] 영진위 목록 검색 핸들러
+            // ---------------------------------------------------------
+            const handleKoficSearch = async () => {
+                if (!formData.title) return showToast("검색할 타이틀을 입력하세요.");
+                
+                setIsSearchingKofic(true);
+                setKoficCandidates([]); 
+                setShowCandidateList(false);
+
+                const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
+                
+                try {
+                    // GAS에 type=kofic_search_list 로 요청
+                    const targetUrl = `${scriptUrl}?type=kofic_search_list&title=${encodeURIComponent(formData.title)}`;
+                    const response = await fetch(targetUrl);
+                    const json = await response.json();
+
+                    if (json.result === "success") {
+                        if (json.candidates && json.candidates.length > 0) {
+                            setKoficCandidates(json.candidates);
+                            setShowCandidateList(true); // 목록 열기
+                            showToast(`🔎 ${json.candidates.length}건이 검색되었습니다.`);
+                        } else {
+                            showToast("검색 결과가 없습니다.");
+                        }
+                    } else {
+                        showToast("검색 실패: " + (json.msg || "API 오류"));
+                    }
+                } catch (e) {
+                    console.error(e);
+                    showToast("통신 오류 발생");
+                } finally {
+                    setIsSearchingKofic(false);
+                }
+            };
+
+            // ---------------------------------------------------------
+            // [신규 기능 2] 영화 선택 & AI 데이터 보강 핸들러
+            // ---------------------------------------------------------
+            const handleSelectMovie = async (movie) => {
+                // 1. KOFIC 데이터로 기본 정보 즉시 채우기
+                const baseData = {
+                    title: movie.title, // 영진위 공식 제목 사용
+                    originalTitle: movie.titleEn || '',
+                    prodYear: movie.prodYear || '',
+                    // 개봉일 포맷팅 (YYYYMMDD -> YYYY-MM-DD)
+                    btvPlusAvailableDate: movie.openDt ? formatDateStandard(movie.openDt) : formData.btvPlusAvailableDate,
+                    // 장르가 있으면 카테고리 매핑 시도 (단순 예시)
+                    category: movie.genre ? (movie.genre.includes("애니") ? "한국영화애니메이션" : "한국영화") : formData.category
+                };
+
+                setFormData(prev => ({ ...prev, ...baseData }));
+                setShowCandidateList(false); // 목록 닫기
+                
+                // 2. AI에게 나머지 데이터(관객수, 배우, 수상) 질문하기
+                showToast(`✅ [${movie.title}] 선택됨. AI가 관객수/배우 정보를 찾습니다...`);
+                setIsAiLoading(true);
+
+                const prompt = `
+                영화 정보:
+                - 제목: ${movie.title}
+                - 감독: ${movie.director}
+                - 개봉일: ${movie.openDt}
+                
+                요청: 위 영화의 정보를 바탕으로 아래 항목을 JSON으로 찾아줘.
+                1. "actors": 주연 배우 3명 (이름만 콤마로 구분)
+                2. "boxOffice": 한국 공식 누적 관객수 (숫자와 '명' 포함, 예: 1,234명. 정확히 모르면 '정보없음')
+                3. "awards": 주요 영화제 수상 이력 (없으면 빈칸)
+                
+                응답은 오직 JSON 포맷만 출력해. 예: {"actors": "...", "boxOffice": "...", "awards": "..."}`;
+
+                try {
+                    const aiRes = await callGemini(prompt);
+                    
+                    if (!aiRes.error && aiRes.text) {
+                        // JSON 파싱 (AI가 마크다운 ```json ... ``` 을 붙일 경우 대비)
+                        const cleanText = aiRes.text.replace(/```json|```/g, '').trim();
+                        const firstBrace = cleanText.indexOf('{');
+                        const lastBrace = cleanText.lastIndexOf('}');
+                        
+                        if (firstBrace !== -1 && lastBrace !== -1) {
+                            const jsonStr = cleanText.substring(firstBrace, lastBrace + 1);
+                            const aiJson = JSON.parse(jsonStr);
+
+                            setFormData(prev => ({
+                                ...prev,
+                                actors: aiJson.actors || prev.actors,
+                                boxOffice: aiJson.boxOffice || prev.boxOffice,
+                                awards: aiJson.awards || prev.awards
+                            }));
+                            showToast("✨ AI 데이터 보강 완료!");
+                        } else {
+                            throw new Error("JSON 파싱 실패");
+                        }
+                    } else {
+                        showToast("AI 응답이 없습니다.");
+                    }
+                } catch (e) {
+                    console.error("AI Error:", e);
+                    showToast("AI 보강 중 오류 (기본 정보만 저장됨)");
+                } finally {
+                    setIsAiLoading(false);
+                }
             };
 
             const handleApproveRequest = (req) => {
@@ -1614,41 +1722,112 @@
                                 </div>
                                 <div className="p-8 space-y-8 overflow-y-auto">
                                     <section>
-                                        <div className="flex justify-between items-end mb-4"><h4 className="font-bold text-lg flex items-center gap-2"><Icon name="Package"/> 기본 정보 & 메타데이터</h4><button onClick={handleAiMeta} className="text-xs ai-button text-white px-3 py-1 rounded-full font-bold flex items-center gap-1"><Icon name="Sparkles"/> AI 자동채우기</button></div>
+                                        <div className="flex justify-between items-end mb-4">
+                                            <h4 className="font-bold text-lg flex items-center gap-2"><Icon name="Package"/> 기본 정보 & 메타데이터</h4>
+                                            {/* 기존 AI 버튼 제거됨 (검색 흐름에 통합) */}
+                                        </div>
+
+                                        {/* [신규] 검색 결과 리스트 (검색 결과가 있을 때만 표시) */}
+                                        {showCandidateList && koficCandidates.length > 0 && (
+                                            <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-lg p-4 animate-in slide-in-from-top-2 shadow-inner">
+                                                <div className="flex justify-between items-center mb-2 pb-2 border-b border-indigo-200">
+                                                    <h5 className="font-bold text-indigo-900 text-sm flex items-center gap-2">
+                                                        🎞️ 영진위 검색 결과 <span className="text-xs font-normal text-indigo-600">({koficCandidates.length}건) - 맞는 영화를 클릭하세요</span>
+                                                    </h5>
+                                                    <button onClick={() => setShowCandidateList(false)} className="text-gray-500 hover:text-gray-800 p-1">
+                                                        <Icon name="X" size={16}/>
+                                                    </button>
+                                                </div>
+                                                <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                                    {koficCandidates.map((m) => (
+                                                        <div 
+                                                            key={m.movieCd} 
+                                                            onClick={() => handleSelectMovie(m)}
+                                                            className="bg-white p-3 rounded border hover:border-indigo-500 hover:bg-indigo-50 cursor-pointer transition group shadow-sm"
+                                                        >
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <span className="font-bold text-gray-800 group-hover:text-indigo-700 text-base">
+                                                                        {m.title}
+                                                                    </span>
+                                                                    {m.prodYear && <span className="ml-2 text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded"> {m.prodYear} </span>}
+                                                                </div>
+                                                                <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">{m.type}</span>
+                                                            </div>
+                                                            <div className="text-xs text-gray-500 mt-1 flex gap-2 items-center">
+                                                                <span>🎬 {m.director || '감독미상'}</span>
+                                                                <span className="text-gray-300">|</span>
+                                                                <span>📅 {m.openDt || '개봉일미상'}</span>
+                                                                <span className="text-gray-300">|</span>
+                                                                <span>🏷️ {m.genre}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 입력 폼 영역 */}
                                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                            <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">타이틀 *</label><input className="w-full border p-2 rounded" value={formData.title} onChange={e=>setFormData({...formData, title:e.target.value})}/></div>
+                                            {/* 타이틀 검색 영역 (합쳐짐) */}
+                                            <div className="md:col-span-4 flex flex-col md:flex-row gap-2 items-end">
+                                                <div className="flex-1 w-full">
+                                                    <label className="block text-xs font-bold mb-1 text-gray-600">타이틀 *</label>
+                                                    <input 
+                                                        className="w-full border p-2 rounded bg-white focus:ring-2 ring-indigo-200 outline-none transition" 
+                                                        value={formData.title} 
+                                                        onChange={e=>setFormData({...formData, title:e.target.value})}
+                                                        onKeyDown={e => e.key === 'Enter' && handleKoficSearch()} 
+                                                        placeholder="영화 제목을 입력하세요"
+                                                    />
+                                                </div>
+                                                <button 
+                                                    onClick={handleKoficSearch} 
+                                                    disabled={isSearchingKofic}
+                                                    className="w-full md:w-auto h-[42px] bg-indigo-600 text-white px-5 rounded font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {isSearchingKofic ? <Icon name="Loader2" className="animate-spin" size={18}/> : <Icon name="Search" size={18}/>}
+                                                    영진위 검색
+                                                </button>
+                                            </div>
                                             
-                                            <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-gray-600">원제목 (선택)</label><input className="w-full border p-2 rounded" value={formData.originalTitle} onChange={e=>setFormData({...formData, originalTitle:e.target.value})} placeholder="검색 정확도 향상용"/></div>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">원제목 (영진위 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-gray-50 text-gray-700" value={formData.originalTitle} onChange={e=>setFormData({...formData, originalTitle:e.target.value})} readOnly placeholder="자동 입력됨"/>
+                                            </div>
                                             
                                             <div>
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">CP사 *</label>
                                                 <input list="cp-options" className="w-full border p-2 rounded" value={formData.cp} onChange={e=>setFormData({...formData, cp:e.target.value})} placeholder="선택/입력"/>
                                                 <datalist id="cp-options">{uniqueCpList.map((cp, i)=><option key={i} value={cp}/>)}</datalist>
                                             </div>
-                                            <div><label className="block text-xs font-bold mb-1 text-gray-600">카테고리</label><select className="w-full border p-2 rounded" value={formData.category} onChange={e=>setFormData({...formData, category:e.target.value})}>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
-                                            <div><label className="block text-xs font-bold mb-1 text-gray-500">평점</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.rating} onChange={e=>setFormData({...formData, rating:e.target.value})} placeholder="8.5"/></div>
-                                            <div><label className="block text-xs font-bold mb-1 text-gray-500">제작연도</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.prodYear} onChange={e=>setFormData({...formData, prodYear:e.target.value})} placeholder="YYYY"/></div>
+
                                             <div>
-                                                <label className="block text-xs font-bold mb-1 text-gray-500">관객수 (실시간)</label>
-                                                <div className="flex gap-1">
-                                                    <input 
-                                                        className="w-full border p-2 rounded bg-gray-50" 
-                                                        value={formData.boxOffice} 
-                                                        onChange={e=>setFormData({...formData, boxOffice:e.target.value})} 
-                                                        placeholder="숫자 or 1만명"
-                                                    />
-                                                    <button 
-                                                        id="btn-kofic"
-                                                        onClick={handleKoficSync}
-                                                        className="bg-blue-600 text-white text-xs px-2 rounded font-bold hover:bg-blue-700 whitespace-nowrap"
-                                                        title="영진위 통합전산망 조회"
-                                                    >
-                                                        영진위 조회
-                                                    </button>
-                                                </div>
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">카테고리</label>
+                                                <select className="w-full border p-2 rounded" value={formData.category} onChange={e=>setFormData({...formData, category:e.target.value})}>{CATEGORY_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select>
                                             </div>
-                                            <div><label className="block text-xs font-bold mb-1 text-gray-500">주연 배우</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.actors} onChange={e=>setFormData({...formData, actors:e.target.value})} placeholder="주연 배우 이름"/></div>
-                                            <div className="md:col-span-4"><label className="block text-xs font-bold mb-1 text-gray-500">영화제 수상 이력</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.awards} onChange={e=>setFormData({...formData, awards:e.target.value})} placeholder="주요 수상 내역 (AI 자동입력)"/></div>
+
+                                            <div><label className="block text-xs font-bold mb-1 text-gray-500">평점</label><input className="w-full border p-2 rounded bg-gray-50" value={formData.rating} onChange={e=>setFormData({...formData, rating:e.target.value})} placeholder="8.5"/></div>
+                                            
+                                            <div>
+                                                <label className="block text-xs font-bold mb-1 text-gray-500">제작연도 (영진위 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-gray-50 text-gray-700" value={formData.prodYear} onChange={e=>setFormData({...formData, prodYear:e.target.value})} readOnly placeholder="YYYY"/>
+                                            </div>
+
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">관객수 (AI 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.boxOffice} onChange={e=>setFormData({...formData, boxOffice:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
+                                            </div>
+                                            
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">주연 배우 (AI 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.actors} onChange={e=>setFormData({...formData, actors:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
+                                            </div>
+                                            
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">영화제 수상 이력 (AI 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.awards} onChange={e=>setFormData({...formData, awards:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
+                                            </div>
                                         </div>
                                     </section>
                                     <hr className="border-gray-100"/>
@@ -1832,5 +2011,6 @@
     </script>
 </body>
 </html>
+
 
 
