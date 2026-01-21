@@ -849,71 +849,108 @@
             };
 
             // ---------------------------------------------------------
-            // [수정된 기능] 영화 선택 -> KOFIC 상세조회 -> AI 관객수 보강
+            // [최종] 영화 선택 핸들러 (KOFIC 상세 데이터 우선 적용 로직)
             // ---------------------------------------------------------
             const handleSelectMovie = async (movie) => {
-                setShowCandidateList(false); // 목록 닫기
+                // 1. 목록 UI 닫기 및 로딩 표시
+                setShowCandidateList(false);
                 showToast(`⏳ [${movie.title}] 상세 정보(배우/등급)를 가져오는 중...`);
                 
                 const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
 
                 try {
-                    // 1. GAS에 상세 정보 요청 (배우, 등급 등 KOFIC 데이터 확보)
+                    // =========================================================
+                    // STEP 1: GAS 백엔드에 상세 정보 요청 (kofic_movie_detail)
+                    // =========================================================
                     const detailUrl = `${scriptUrl}?type=kofic_movie_detail&movieCd=${movie.movieCd}`;
                     const detailRes = await fetch(detailUrl);
                     const detailJson = await detailRes.json();
 
-                    let koficData = {};
+                    // 상세 정보 객체 초기화
+                    let koficData = {
+                        title: movie.title,
+                        titleEn: movie.titleEn,
+                        prodYear: movie.prodYear,
+                        openDt: movie.openDt,
+                        director: movie.director,
+                        actors: "", // 기본값 빈 문자열
+                        audit: ""
+                    };
                     
+                    // GAS 통신 성공 시 데이터 덮어쓰기
                     if (detailJson.result === "success" && detailJson.data) {
-                        koficData = detailJson.data;
+                        koficData = { ...koficData, ...detailJson.data };
+                        console.log("✅ KOFIC 상세 데이터 수신:", koficData);
                     } else {
-                        // 상세 조회 실패 시 목록에 있던 기본 정보라도 사용
-                        koficData = {
-                            title: movie.title,
-                            titleEn: movie.titleEn,
-                            prodYear: movie.prodYear,
-                            openDt: movie.openDt,
-                            director: movie.director,
-                            actors: "", // 실패 시 빈값
-                            audit: ""
-                        };
+                        console.warn("⚠️ 상세 조회 실패, 목록 기본 정보 사용");
                     }
 
-                    // 2. 폼 데이터 1차 업데이트 (KOFIC 데이터 적용)
+                    // =========================================================
+                    // STEP 2: 영진위 데이터 우선 적용 (배우가 있으면 무조건 씀)
+                    // =========================================================
+                    
+                    // 배우 정보가 비어있는지 체크 (비어있으면 true)
+                    const isActorMissing = !koficData.actors || koficData.actors.trim() === "";
+
                     const baseData = {
-                        title: koficData.title,
                         originalTitle: koficData.titleEn || '',
                         prodYear: koficData.prodYear || '',
-                        actors: koficData.actors || '', // 영진위 배우 데이터 적용
-                        // 등급 정보를 비고에 살짝 넣어줌 (편의상)
+                        
+                        // [핵심] 배우 정보가 있으면 영진위 데이터를 넣고, 없으면 일단 빈칸으로 둠
+                        actors: isActorMissing ? "" : koficData.actors, 
+                        
+                        // 관람 등급은 비고란에 자동 기입
                         remarks: koficData.audit ? `관람등급: ${koficData.audit}` : formData.remarks,
+                        
+                        // 날짜 포맷팅
                         btvPlusAvailableDate: koficData.openDt ? formatDateStandard(koficData.openDt) : formData.btvPlusAvailableDate,
+                        
+                        // 장르 기반 카테고리 자동 선택
                         category: koficData.genre ? (koficData.genre.includes("애니") ? "한국영화애니메이션" : "한국영화") : formData.category
                     };
 
+                    // 폼에 즉시 반영 (여기서 배우 이름이 화면에 떠야 함)
                     setFormData(prev => ({ ...prev, ...baseData }));
-                    showToast(`✅ 기본 정보 입력 완료! AI가 관객수를 찾습니다...`);
-
-                    // 3. AI에게는 "관객수"와 "수상"만 물어봄 (질문 단순화 -> 성공률 상승)
+                    
+                    
+                    // =========================================================
+                    // STEP 3: AI에게 부족한 정보(관객수, 수상)만 질문
+                    // =========================================================
                     setIsAiLoading(true);
+                    
+                    let loadingMsg = "AI가 관객수와 수상 이력을 찾습니다...";
+                    if (isActorMissing) loadingMsg = "⚠️ 영진위 배우 정보 누락 -> AI가 배우 정보도 함께 찾습니다...";
+                    showToast(loadingMsg);
 
-                    const prompt = `
+                    // AI 프롬프트 작성
+                    let promptRequest = `
                     영화 정보:
                     - 제목: ${koficData.title}
+                    - 원제: ${koficData.titleEn}
                     - 감독: ${koficData.director}
-                    - 개봉일: ${koficData.openDt}
+                    - 개봉년도: ${koficData.openDt ? koficData.openDt.substring(0,4) : koficData.prodYear}
                     
-                    요청: 위 영화의 다음 정보를 JSON으로 찾아줘.
-                    1. "boxOffice": 한국 공식 누적 관객수 (숫자와 '명' 포함, 예: 12,345명. 없으면 '정보없음')
-                    2. "awards": 주요 영화제 수상 이력 (대표적인 것 1~2개만, 없으면 빈칸)
+                    명령: 위 영화는 이미 개봉한 영화다. 웹상의 정보를 바탕으로 다음 데이터를 JSON으로 찾아내라.
                     
-                    응답 예시: {"boxOffice": "1,234명", "awards": "청룡영화상 최우수작품상"}`;
+                    [필수 항목]
+                    1. "boxOffice": 한국 공식 누적 관객수 (예: "12,345명" 또는 "약 25만명"). 
+                       - 정확한 수치를 모르면 뉴스나 위키를 참고해 추정치라도 적어라.
+                       - 정말 정보가 없으면 "0명"으로 표기.
+                    2. "awards": 주요 수상 이력 (없으면 빈칸)
+                    `;
+                    
+                    // [조건부] 영진위에 배우가 없었을 때만 AI에게 시킴
+                    if (isActorMissing) {
+                        promptRequest += `\n3. "actors": 주연 배우 3명 (한국어 이름, 콤마로 구분). 반드시 찾아낼 것.`;
+                    }
+                    
+                    promptRequest += `\n\n응답은 오직 JSON 형식만 출력할 것. (설명 금지)`;
 
-                    const aiRes = await callGemini(prompt);
+                    // AI 호출
+                    const aiRes = await callGemini(promptRequest);
                     
                     if (!aiRes.error && aiRes.text) {
-                        // JSON 파싱 강화
+                        // JSON 파싱
                         const cleanText = aiRes.text.replace(/```json|```/g, '').trim();
                         const firstBrace = cleanText.indexOf('{');
                         const lastBrace = cleanText.lastIndexOf('}');
@@ -924,22 +961,22 @@
 
                             setFormData(prev => ({
                                 ...prev,
-                                boxOffice: aiJson.boxOffice || prev.boxOffice,
-                                awards: aiJson.awards || prev.awards
+                                boxOffice: aiJson.boxOffice || "0명",
+                                awards: aiJson.awards || prev.awards,
+                                // 배우가 누락되었던 경우에만 AI 데이터로 덮어쓰기 (영진위 데이터 보존)
+                                actors: isActorMissing ? (aiJson.actors || "") : prev.actors 
                             }));
-                            showToast("✨ AI 관객수/수상 데이터 보강 완료!");
+                            showToast("✨ 데이터 보강 완료!");
                         } else {
-                            // JSON 파싱 실패하더라도 텍스트라도 있으면 로그에 남김
                             console.warn("AI JSON Parsing Failed:", aiRes.text);
-                            showToast("AI 응답 형식이 올바르지 않습니다.");
                         }
                     } else {
-                        showToast("AI 응답이 없습니다 (API 오류)");
+                        showToast("AI 응답 실패: " + (aiRes.error || "응답 없음"));
                     }
 
                 } catch (e) {
                     console.error(e);
-                    showToast("데이터 처리 중 오류 발생");
+                    showToast("오류 발생: " + e.message);
                 } finally {
                     setIsAiLoading(false);
                 }
@@ -2044,6 +2081,7 @@
     </script>
 </body>
 </html>
+
 
 
 
