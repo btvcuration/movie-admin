@@ -2018,9 +2018,8 @@
                                                     type="text" 
                                                     name="awards" 
                                                     value={formData.awards} 
-                                                    /* handleChange 함수가 있다면 아래 그대로 쓰시고, 
-                                                       만약 없어서 에러가 난다면 기존처럼 onChange={e=>setFormData({...formData, awards:e.target.value})} 로 바꾸세요. */
-                                                    onChange={handleChange} 
+                                                    // 👇 이렇게 직접 setFormData를 호출하도록 변경해야 합니다.
+                                                    onChange={e => setFormData({...formData, awards: e.target.value})} 
                                                     className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition"
                                                     placeholder="예: 2024 아카데미 각본상 수상"
                                                 />
@@ -2208,5 +2207,6 @@
     </script>
 </body>
 </html>
+
 
 
