@@ -1846,12 +1846,17 @@
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">관객수 (AI 자동)</label>
                                                 <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.boxOffice} onChange={e=>setFormData({...formData, boxOffice:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
                                             </div>
-                                            
                                             <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold mb-1 text-gray-600">주연 배우 (AI 자동)</label>
-                                                <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.actors} onChange={e=>setFormData({...formData, actors:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">
+                                                    주연 배우 (영진위 자동)
+                                                </label>
+                                                <input 
+                                                    className="w-full border p-2 rounded bg-gray-50 focus:bg-white transition" 
+                                                    value={formData.actors} 
+                                                    onChange={e=>setFormData({...formData, actors:e.target.value})} 
+                                                    placeholder="영진위 상세 정보가 자동 입력됩니다"
+                                                />
                                             </div>
-                                            
                                             <div className="md:col-span-2">
                                                 <label className="block text-xs font-bold mb-1 text-gray-600">영화제 수상 이력 (AI 자동)</label>
                                                 <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.awards} onChange={e=>setFormData({...formData, awards:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
@@ -2039,6 +2044,7 @@
     </script>
 </body>
 </html>
+
 
 
 
