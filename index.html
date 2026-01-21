@@ -337,11 +337,31 @@
             const fetchHistory = async () => {
                 const targetUrl = googleScriptUrl && googleScriptUrl.startsWith("http") ? googleScriptUrl : DEFAULT_GOOGLE_SCRIPT_URL;
                 if (!targetUrl) return;
+                
                 try {
                     const response = await fetch(targetUrl + "?type=history");
                     const json = await response.json();
-                    if (Array.isArray(json)) setHistory(json);
-                } catch (e) { console.error("History Error", e); }
+                    
+                    // [디버깅] 데이터가 잘 왔는지 콘솔에 찍어봅니다. F12 눌러서 확인 가능
+                    console.log("Raw History Data:", json);
+
+                    if (Array.isArray(json)) {
+                        const safeHistory = json.map((h, index) => ({
+                            // id가 없으면 index를 사용
+                            id: h.id || index,
+                            
+                            // [핵심 수정] 구글 시트의 대문자 Key(Timestamp)를 우선적으로 찾습니다.
+                            timestamp: formatDateStandard(h.Timestamp) || formatDateStandard(h.timestamp) || String(h.Timestamp || h.timestamp || ''),
+                            user: h.User || h.user || '-',
+                            action: h.Action || h.action || '-',
+                            target: h.Target || h.target || '-',
+                            details: h.Details || h.details || ''
+                        }));
+                        setHistory(safeHistory);
+                    }
+                } catch (e) { 
+                    console.error("History Error", e); 
+                }
             };
 
             const fetchRequests = async () => {
@@ -2167,3 +2187,4 @@
     </script>
 </body>
 </html>
+
