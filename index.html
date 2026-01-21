@@ -854,90 +854,108 @@
             };
 
             // ---------------------------------------------------------
-            // [2번 수정사항] 영화 선택 핸들러 (GAS 관객수 추적 + AI 수상 검색)
+            // [최종] 영화 선택 핸들러 (KOFIC 상세 데이터 우선 적용 로직)
             // ---------------------------------------------------------
             const handleSelectMovie = async (movie) => {
-                // 1. 목록 UI 정리
+                // 1. 목록 UI 닫기 및 로딩 표시
                 setShowCandidateList(false);
-                setKoficCandidates([]); // 검색 목록 초기화 (중요)
-                
-                showToast(`⏳ [${movie.title}] 데이터 분석 및 관객수 추적 중...`);
+                showToast(`⏳ [${movie.title}] 상세 정보(배우/등급)를 가져오는 중...`);
                 
                 const scriptUrl = localStorage.getItem('google_script_url') || DEFAULT_GOOGLE_SCRIPT_URL;
-        
+
                 try {
-                    // 2. GAS 백엔드 호출 (상세정보 + 박스오피스 추적)
+                    // =========================================================
+                    // STEP 1: GAS 백엔드에 상세 정보 요청 (kofic_movie_detail)
+                    // =========================================================
                     const detailUrl = `${scriptUrl}?type=kofic_movie_detail&movieCd=${movie.movieCd}`;
                     const detailRes = await fetch(detailUrl);
                     const detailJson = await detailRes.json();
-        
-                    // GAS에서 받은 데이터 초기화
+
+                    // 상세 정보 객체 초기화
                     let koficData = {
                         title: movie.title,
                         titleEn: movie.titleEn,
                         prodYear: movie.prodYear,
                         openDt: movie.openDt,
                         director: movie.director,
-                        actors: "", 
-                        audit: "",
-                        boxOffice: "" // GAS가 추적한 관객수 (예: "2,403,966명")
+                        actors: "", // 기본값 빈 문자열
+                        audit: ""
                     };
                     
+                    // GAS 통신 성공 시 데이터 덮어쓰기
                     if (detailJson.result === "success" && detailJson.data) {
                         koficData = { ...koficData, ...detailJson.data };
+                        console.log("✅ KOFIC 상세 데이터 수신:", koficData);
+                    } else {
+                        console.warn("⚠️ 상세 조회 실패, 목록 기본 정보 사용");
                     }
-        
-                    // 3. 데이터 적용 여부 판단
+
+                    // =========================================================
+                    // STEP 2: 영진위 데이터 우선 적용 (배우가 있으면 무조건 씀)
+                    // =========================================================
+                    
+                    // 배우 정보가 비어있는지 체크 (비어있으면 true)
                     const isActorMissing = !koficData.actors || koficData.actors.trim() === "";
-                    // GAS가 관객수를 찾아왔는지 확인 (0명이 아니고 빈값이 아니면 성공)
-                    const isBoxOfficeFound = koficData.boxOffice && koficData.boxOffice !== "0명" && koficData.boxOffice !== "";
-        
-                    // 기본 데이터 폼에 적용
+
                     const baseData = {
-                        // title: koficData.title, // (제목은 덮어쓰지 않고 유지)
                         originalTitle: koficData.titleEn || '',
                         prodYear: koficData.prodYear || '',
-                        actors: isActorMissing ? "" : koficData.actors,
-                        boxOffice: isBoxOfficeFound ? koficData.boxOffice : "", 
+                        
+                        // [핵심] 배우 정보가 있으면 영진위 데이터를 넣고, 없으면 일단 빈칸으로 둠
+                        actors: isActorMissing ? "" : koficData.actors, 
+                        
+                        // 관람 등급은 비고란에 자동 기입
                         remarks: koficData.audit ? `관람등급: ${koficData.audit}` : formData.remarks,
+                        
+                        // 날짜 포맷팅
                         btvPlusAvailableDate: koficData.openDt ? formatDateStandard(koficData.openDt) : formData.btvPlusAvailableDate,
+                        
+                        // 장르 기반 카테고리 자동 선택
                         category: koficData.genre ? (koficData.genre.includes("애니") ? "한국영화애니메이션" : "한국영화") : formData.category
                     };
-        
+
+                    // 폼에 즉시 반영 (여기서 배우 이름이 화면에 떠야 함)
                     setFormData(prev => ({ ...prev, ...baseData }));
                     
-                    // 4. AI 호출 (부족한 부분 + 수상 이력)
+                    
+                    // =========================================================
+                    // STEP 3: AI에게 부족한 정보(관객수, 수상)만 질문
+                    // =========================================================
                     setIsAiLoading(true);
                     
+                    let loadingMsg = "AI가 관객수와 수상 이력을 찾습니다...";
+                    if (isActorMissing) loadingMsg = "⚠️ 영진위 배우 정보 누락 -> AI가 배우 정보도 함께 찾습니다...";
+                    showToast(loadingMsg);
+
+                    // AI 프롬프트 작성
                     let promptRequest = `
                     영화 정보:
                     - 제목: ${koficData.title}
+                    - 원제: ${koficData.titleEn}
                     - 감독: ${koficData.director}
                     - 개봉년도: ${koficData.openDt ? koficData.openDt.substring(0,4) : koficData.prodYear}
                     
-                    명령: 위 영화 정보를 바탕으로 JSON 데이터를 찾아줘.
+                    명령: 위 영화는 이미 개봉한 영화다. 웹상의 정보를 바탕으로 다음 데이터를 JSON으로 찾아내라.
                     
-                    [요청 항목]
-                    1. "awards": 주요 영화제 수상 이력 (없으면 빈칸).
+                    [필수 항목]
+                    1. "boxOffice": 한국 공식 누적 관객수 (예: "12,345명" 또는 "약 25만명"). 
+                       - 정확한 수치를 모르면 뉴스나 위키를 참고해 추정치라도 적어라.
+                       - 정말 정보가 없으면 "0명"으로 표기.
+                    2. "awards": 주요 수상 이력 (없으면 빈칸)
                     `;
                     
-                    // 관객수 추적 실패 시에만 AI에게 요청
-                    if (!isBoxOfficeFound) {
-                        promptRequest += `\n2. "boxOffice": 한국 공식 누적 관객수 (정확한 수치, 없으면 '0명').`;
-                        showToast("⚠️ 관객수 추적 실패 -> AI가 다시 찾습니다...");
-                    } else {
-                        showToast("✅ 관객수 확인 완료! AI가 수상 이력을 찾습니다...");
-                    }
-        
+                    // [조건부] 영진위에 배우가 없었을 때만 AI에게 시킴
                     if (isActorMissing) {
-                        promptRequest += `\n3. "actors": 주연 배우 3명 (한국어).`;
+                        promptRequest += `\n3. "actors": 주연 배우 3명 (한국어 이름, 콤마로 구분). 반드시 찾아낼 것.`;
                     }
                     
-                    promptRequest += `\n\n응답은 오직 JSON 형식만 출력할 것.`;
-        
+                    promptRequest += `\n\n응답은 오직 JSON 형식만 출력할 것. (설명 금지)`;
+
+                    // AI 호출
                     const aiRes = await callGemini(promptRequest);
                     
                     if (!aiRes.error && aiRes.text) {
+                        // JSON 파싱
                         const cleanText = aiRes.text.replace(/```json|```/g, '').trim();
                         const firstBrace = cleanText.indexOf('{');
                         const lastBrace = cleanText.lastIndexOf('}');
@@ -945,17 +963,22 @@
                         if (firstBrace !== -1 && lastBrace !== -1) {
                             const jsonStr = cleanText.substring(firstBrace, lastBrace + 1);
                             const aiJson = JSON.parse(jsonStr);
-        
+
                             setFormData(prev => ({
                                 ...prev,
-                                // 기존 데이터 보존 우선, 없으면 AI 데이터 사용
-                                boxOffice: isBoxOfficeFound ? prev.boxOffice : (aiJson.boxOffice || "0명"),
-                                actors: isActorMissing ? (aiJson.actors || "") : prev.actors,
-                                awards: aiJson.awards || prev.awards
+                                boxOffice: aiJson.boxOffice || "0명",
+                                awards: aiJson.awards || prev.awards,
+                                // 배우가 누락되었던 경우에만 AI 데이터로 덮어쓰기 (영진위 데이터 보존)
+                                actors: isActorMissing ? (aiJson.actors || "") : prev.actors 
                             }));
-                            showToast("✨ 데이터 준비 완료!");
+                            showToast("✨ 데이터 보강 완료!");
+                        } else {
+                            console.warn("AI JSON Parsing Failed:", aiRes.text);
                         }
-                    } 
+                    } else {
+                        showToast("AI 응답 실패: " + (aiRes.error || "응답 없음"));
+                    }
+
                 } catch (e) {
                     console.error(e);
                     showToast("오류 발생: " + e.message);
@@ -963,56 +986,7 @@
                     setIsAiLoading(false);
                 }
             };
-            // ---------------------------------------------------------
-            // [3번 수정사항] 수상 이력 전용 AI 검색 핸들러
-            // ---------------------------------------------------------
-            const handleAiAwards = async (e) => {
-                e.preventDefault(); // 폼 전송 방지 (필수)
-                
-                if (!formData.title) {
-                    showToast("❌ 영화 제목이 없습니다.");
-                    return;
-                }
-        
-                setIsAiLoading(true);
-                showToast(`🏆 [${formData.title}] 수상 이력 검색 중...`);
-        
-                try {
-                    // 수상 이력에 집중한 프롬프트
-                    const prompt = `
-                    영화 정보:
-                    - 제목: ${formData.title}
-                    - 감독: ${formData.director || ""}
-                    - 개봉년도: ${formData.prodYear || ""}
-        
-                    명령: 위 영화의 "주요 영화제 수상 이력"을 한 문장으로 요약해줘.
-                    - 칸, 베니스, 베를린, 아카데미, 골든글로브, 청룡, 백상 등 주요 시상식 위주.
-                    - 수상 내역이 없으면 "수상 내역 없음" 이라고만 답해.
-                    - 예시: "2020 아카데미 작품상, 감독상, 각본상, 국제장편영화상 수상"
-                    `;
-        
-                    const aiRes = await callGemini(prompt);
-        
-                    if (!aiRes.error && aiRes.text) {
-                        // 따옴표나 불필요한 공백 제거
-                        const cleanText = aiRes.text.replace(/"/g, '').trim();
-                        
-                        setFormData(prev => ({
-                            ...prev,
-                            awards: cleanText
-                        }));
-                        showToast("✅ 수상 이력이 업데이트되었습니다.");
-                    } else {
-                        showToast("AI 응답 실패. 다시 시도해주세요.");
-                    }
-        
-                } catch (err) {
-                    console.error(err);
-                    showToast("오류 발생: " + err.message);
-                } finally {
-                    setIsAiLoading(false);
-                }
-            };
+
             const handleApproveRequest = (req) => {
                 let aiData = {};
                 try {
@@ -1939,37 +1913,9 @@
                                                     placeholder="영진위 상세 정보가 자동 입력됩니다"
                                                 />
                                             </div>
-                                            {/* ▼▼▼ [교체할 코드] 수상 이력 입력 필드 + AI 버튼 ▼▼▼ */}
                                             <div className="md:col-span-2">
-                                                <label className="block text-sm font-bold mb-1 text-gray-700 flex justify-between items-end">
-                                                    <span>영화제 수상 이력</span>
-                                                    
-                                                    {/* 신규 추가된 AI 검색 버튼 */}
-                                                    <button
-                                                        onClick={handleAiAwards}
-                                                        disabled={isAiLoading}
-                                                        className="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-200 hover:bg-indigo-100 transition flex items-center gap-1"
-                                                        title="이 영화의 수상 이력만 AI로 다시 검색합니다."
-                                                    >
-                                                        {isAiLoading ? (
-                                                            <span className="animate-spin">⌛</span> 
-                                                        ) : (
-                                                            <Icon name="Sparkles" size={12}/>
-                                                        )}
-                                                        AI 검색
-                                                    </button>
-                                                </label>
-                                                
-                                                <input 
-                                                    type="text" 
-                                                    name="awards" 
-                                                    value={formData.awards} 
-                                                    /* handleChange 함수가 있다면 아래 그대로 쓰시고, 
-                                                       만약 없어서 에러가 난다면 기존처럼 onChange={e=>setFormData({...formData, awards:e.target.value})} 로 바꾸세요. */
-                                                    onChange={handleChange} 
-                                                    className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition"
-                                                    placeholder="예: 2024 아카데미 각본상 수상"
-                                                />
+                                                <label className="block text-xs font-bold mb-1 text-gray-600">영화제 수상 이력 (AI 자동)</label>
+                                                <input className="w-full border p-2 rounded bg-yellow-50 focus:bg-white transition" value={formData.awards} onChange={e=>setFormData({...formData, awards:e.target.value})} placeholder="영화 선택 시 AI가 입력합니다"/>
                                             </div>
                                         </div>
                                     </section>
@@ -2154,11 +2100,4 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
 
