@@ -83,16 +83,20 @@
             if (!scriptUrl) return { error: "설정에서 Google Script URL을 확인해주세요." };
 
             try {
-                const targetUrl = `${scriptUrl}?type=ai_search&prompt=${encodeURIComponent(prompt)}`;
-                const response = await fetch(targetUrl);
-                if (!response.ok) return { error: `서버 통신 오류 (${response.status})` };
-                
-                const result = await response.json();
-                if (result.error) return { error: result.error };
-                
-                return result; 
-            } catch (e) { return { error: "요청 실패: " + e.message }; }
-        };
+                    // AbortController로 30초 타임아웃 설정
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초
+            
+                    const response = await fetch(targetUrl, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+            
+                    if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+                    return await response.json();
+                } catch (e) {
+                    if (e.name === 'AbortError') return { error: "시간 초과: 서버 응답이 너무 늦습니다." };
+                    return { error: "통신 실패: " + e.message };
+                }
+            };
 
         const Icon = ({ name, size = 16, className, ...props }) => {
             try {
@@ -323,7 +327,9 @@
                 setIsFetching(true);
                 try {
                     const response = await fetch(targetUrl);
-                    const json = await response.json();
+                    const text = await response.text(); // 먼저 텍스트로 받음
+                    try {
+                        const json = JSON.parse(text); // 파싱 시도
                     if (Array.isArray(json)) {
                         const cleanData = normalizeData(json);
                         setData(cleanData);
@@ -331,7 +337,11 @@
                     } else if (json.error) {
                         showToast('불러오기 실패: ' + json.error);
                     }
-                } catch (e) { showToast('연동 오류'); } 
+                } catch (e) {
+                    console.error("서버 응답이 JSON이 아닙니다:", text); // HTML 에러 내용 확인 가능
+                    showToast("서버 오류: 잠시 후 다시 시도해주세요.");
+                    return;
+                }
                 finally { setIsFetching(false); }
             };
 
@@ -2169,6 +2179,7 @@
     </script>
 </body>
 </html>
+
 
 
 
