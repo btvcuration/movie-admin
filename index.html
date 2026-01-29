@@ -879,7 +879,9 @@
                             setFormData(prev => ({ 
                                 ...prev, 
                                 awards: json.awards || prev.awards,
-                                actors: needActors ? (json.actors || prev.actors) : prev.actors,
+                                actors: needActors 
+                                    ? (Array.isArray(json.actors) ? json.actors.join(", ") : (json.actors || prev.actors)) 
+                                    : prev.actors,
                                 boxOffice: needBoxOffice ? (json.boxOffice || prev.boxOffice) : prev.boxOffice
                             }));
                             
@@ -2179,6 +2181,7 @@
     </script>
 </body>
 </html>
+
 
 
 
