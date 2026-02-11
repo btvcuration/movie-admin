@@ -1294,6 +1294,7 @@
                 .filter(d => (d.title||'').includes(searchTerm) || (d.cp||'').includes(searchTerm))
                 .filter(d => {
                     if (managementFilter === 'ALL') return true;
+                    if (managementFilter === 'BTV_PLUS') return d.btvPlusStatus === 'Y'; // [추가]
                     const isLive = checkIsLive(d);
                     return managementFilter === 'LIVE' ? isLive : !isLive;
                 })
@@ -1476,8 +1477,14 @@
                                         <div>
                                             <h1 className="text-2xl font-bold">편성 목록 관리</h1>
                                             <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
-                                                {['ALL', 'LIVE', 'SCHEDULED'].map(f => (
-                                                    <button key={f} onClick={()=>{setManagementFilter(f); setCurrentPage(1);}} className={`px-3 py-1 text-xs font-bold rounded-full border whitespace-nowrap ${managementFilter===f?'bg-indigo-600 text-white':'bg-white text-gray-500'}`}>{f==='ALL'?'전체':f==='LIVE'?'서비스 중':'대기 중'}</button>
+                                                {['ALL', 'LIVE', 'SCHEDULED', 'BTV_PLUS'].map(f => (
+                                                    <button 
+                                                        key={f} 
+                                                        onClick={()=>{setManagementFilter(f); setCurrentPage(1);}} 
+                                                        className={`px-3 py-1 text-xs font-bold rounded-full border whitespace-nowrap ${managementFilter===f?'bg-indigo-600 text-white':'bg-white text-gray-500'}`}
+                                                    >
+                                                        {f==='ALL'?'전체':f==='LIVE'?'서비스 중':f==='SCHEDULED'?'대기 중':'B tv +'}
+                                                    </button>
                                                 ))}
                                             </div>
                                         </div>
@@ -1532,9 +1539,15 @@
                                                             <tr key={d.id} className="hover:bg-gray-50">
                                                                 <td className="p-4 text-gray-500">{d.id}</td>
                                                                 <td className="p-4 font-bold text-gray-800 cursor-pointer hover:text-indigo-600" onClick={()=>handleTitleClick(d)}>
-                                                                    {d.title}
+                                                                    <div className="flex items-center gap-2"> {/* flex 적용 */}
+                                                                        <span className="truncate max-w-[200px] md:max-w-none">{d.title}</span>
+                                                                        {isNew && (
+                                                                            <span className="shrink-0 px-1.5 py-0.5 bg-red-100 text-red-600 text-[10px] rounded font-bold">
+                                                                                N
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                     {d.originalTitle && <span className="block text-xs font-normal text-gray-400">{d.originalTitle}</span>}
-                                                                    {isNew && <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-600 text-xs rounded font-bold">N</span>}
                                                                 </td>
                                                                 <td className="p-4 text-gray-600">{d.cp}</td>
                                                                 <td className="p-4">{d.btvPlusStatus === 'Y' ? <span className="text-blue-600 font-bold">Y</span> : <span className="text-gray-300">-</span>}</td>
@@ -2112,6 +2125,7 @@
     </script>
 </body>
 </html>
+
 
 
 
