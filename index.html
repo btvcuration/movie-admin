@@ -1926,16 +1926,18 @@
                     
                                     <hr className="border-gray-100"/>
                     
-                                    {/* [1순위] 자동 홀드백 스케줄링 - 기준 잡기 */}
-                                    <section className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 shadow-sm">
-                                        <h4 className="font-bold text-indigo-900 flex items-center gap-2 text-base mb-3"><Icon name="Calculator" size={18}/> 1. 자동 홀드백 스케줄링</h4>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1">
-                                                <input type="date" className="w-full border p-2.5 rounded-lg text-sm bg-white" onChange={(e) => applyAutoHoldback(e.target.value, pricingTab)}/>
+                                    {/* [1. 자동 홀드백 스케줄링] - 텍스트 외부로 추출됨 */}
+                                    <section>
+                                        <h4 className="font-bold text-lg flex items-center gap-2 mb-4 text-gray-800"><Icon name="Calculator" size={18}/> 1. 자동 홀드백 스케줄링</h4>
+                                        <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 shadow-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex-1">
+                                                    <input type="date" className="w-full border p-2.5 rounded-lg text-sm bg-white focus:ring-1 ring-indigo-200 outline-none" onChange={(e) => applyAutoHoldback(e.target.value, pricingTab)}/>
+                                                </div>
+                                                <button onClick={() => applyAutoHoldback(null, pricingTab)} className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 transition shadow-sm">스케줄 생성</button>
                                             </div>
-                                            <button onClick={() => applyAutoHoldback(null, pricingTab)} className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 transition shadow-md">스케줄 생성</button>
+                                            <p className="mt-2 text-[11px] text-gray-500">* 기준일을 입력하면 VOD 일정이 자동 생성되며, B tv+ 편성일 계산 여부를 묻습니다.</p>
                                         </div>
-                                        <p className="mt-2 text-[11px] text-indigo-500 font-medium">* 기준일을 입력하면 VOD 일정이 자동 생성되며, B tv+ 편성일 계산 여부를 묻습니다.</p>
                                     </section>
                     
                                     <hr className="border-gray-100"/>
@@ -1991,24 +1993,28 @@
                     
                                     {/* [3순위] B tv+ 편성 정보 - 최종 단계 */}
                                     <section>
-                                        <h4 className="font-bold text-lg flex items-center gap-2 mb-4 text-indigo-900"><Icon name="Tv"/> 3. B tv+ 편성 정보 (무료 전환)</h4>
-                                        <div className="bg-white p-5 rounded-xl border border-gray-200 flex flex-col md:flex-row items-start md:items-center gap-8 shadow-sm">
-                                            <div className="flex items-center gap-4">
-                                                <span className="text-sm font-bold text-gray-600">편성 여부</span>
-                                                <div className="flex bg-gray-100 p-1 rounded-lg">
-                                                    <button onClick={()=>setFormData({...formData, btvPlusStatus:'Y'})} className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${formData.btvPlusStatus==='Y'?'bg-white shadow-sm text-indigo-600':'text-gray-400'}`}>Y</button>
-                                                    <button onClick={()=>setFormData({...formData, btvPlusStatus:'N', btvPlusAvailableDate:'', btvPlusActualDate:''})} className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${formData.btvPlusStatus==='N'?'bg-white shadow-sm text-red-500':'text-gray-400'}`}>N</button>
+                                        <h4 className="font-bold text-lg flex items-center gap-2 mb-4 text-gray-800"><Icon name="Tv"/> 3. B tv+ 편성 정보</h4>
+                                        <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 flex flex-col md:flex-row items-start md:items-center gap-8 shadow-sm">
+                                            <div className="flex items-center gap-6">
+                                                <span className="text-sm font-bold text-gray-700">편성 여부:</span>
+                                                <div className="flex gap-4">
+                                                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                                                        <input type="radio" name="btvStatus" className="w-4 h-4 text-indigo-600" checked={formData.btvPlusStatus==='Y'} onChange={()=>setFormData({...formData, btvPlusStatus:'Y'})}/> Y
+                                                    </label>
+                                                    <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-700">
+                                                        <input type="radio" name="btvStatus" className="w-4 h-4 text-indigo-600" checked={formData.btvPlusStatus==='N'} onChange={()=>setFormData({...formData, btvPlusStatus:'N', btvPlusAvailableDate:'', btvPlusActualDate:''})}/> N
+                                                    </label>
                                                 </div>
                                             </div>
                                             {formData.btvPlusStatus === 'Y' && (
-                                                <div className="flex flex-wrap gap-6 border-l pl-8">
+                                                <div className="flex flex-wrap gap-6 border-l border-gray-300 pl-8">
                                                     <div className="flex flex-col gap-1">
-                                                        <label className="text-[11px] font-bold text-indigo-500">Avail (권리 시작일)</label>
-                                                        <input type="date" className="border-b p-1 focus:border-indigo-500 outline-none transition" value={formData.btvPlusAvailableDate} onChange={e=>setFormData({...formData, btvPlusAvailableDate:e.target.value})}/>
+                                                        <label className="text-[11px] font-bold text-gray-600 uppercase">Avail (권리 시작일)</label>
+                                                        <input type="date" className="border p-1.5 rounded bg-white text-sm focus:ring-1 ring-indigo-100 outline-none" value={formData.btvPlusAvailableDate} onChange={e=>setFormData({...formData, btvPlusAvailableDate:e.target.value})}/>
                                                     </div>
                                                     <div className="flex flex-col gap-1">
-                                                        <label className="text-[11px] font-bold text-indigo-500">Live (편성 예정일)</label>
-                                                        <input type="date" className="border-b p-1 focus:border-indigo-500 outline-none transition" value={formData.btvPlusActualDate} onChange={e=>setFormData({...formData, btvPlusActualDate:e.target.value})}/>
+                                                        <label className="text-[11px] font-bold text-gray-600 uppercase">Live (편성 예정일)</label>
+                                                        <input type="date" className="border p-1.5 rounded bg-white text-sm focus:ring-1 ring-indigo-100 outline-none" value={formData.btvPlusActualDate} onChange={e=>setFormData({...formData, btvPlusActualDate:e.target.value})}/>
                                                     </div>
                                                 </div>
                                             )}
@@ -2040,4 +2046,5 @@
     </script>
 </body>
 </html>
+
 
