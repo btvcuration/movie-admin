@@ -883,48 +883,49 @@
                     alert("AI 통신 오류: " + res.error);
                 } else {
                     try {
-                        const text = res.text || "";
-                        console.log("🤖 AI 원본 응답:", text); // F12 콘솔 확인용
+                        let parsedData = {};
                         
-                        // 1. 마크다운 찌꺼기 제거
-                        const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-                        const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-                        
-                        if (jsonMatch) {
-                            let safeJsonStr = jsonMatch[0];
-                            
-                            // 🔥 [무적의 방어 로직] 
-                            // AI가 넣은 모든 엔터(\n), 탭(\t), 숨겨진 특수 제어문자를 스페이스(공백)로 치환합니다.
-                            // 이렇게 하면 문자열 중간에 엔터가 있어도 한 줄로 예쁘게 펴져서 에러가 절대 나지 않습니다.
-                            safeJsonStr = safeJsonStr.replace(/[\n\r\t]+/g, ' ');
-                            
-                            // 혹시 모를 마지막 쉼표(Trailing Comma) 제거
-                            safeJsonStr = safeJsonStr.replace(/,\s*([}\]])/g, '$1');
-                            
-                            // 2. 평평하게 다림질된 문자열을 안전하게 파싱
-                            const parsedData = JSON.parse(safeJsonStr);
-                            
-                            // 3. 배우 이름이 배열 [ ] 로 오면 문자열로 합치기
-                            let finalActors = parsedData.actors;
-                            if (Array.isArray(finalActors)) {
-                                finalActors = finalActors.join(", ");
+                        // 🔥 [반전의 해결책] 
+                        // 서버가 이미 파싱을 성공해서 알맹이(객체)를 보냈다면 바로 쓴다!
+                        if (res.awards || res.actors || res.boxOffice) {
+                            parsedData = res;
+                            console.log("✅ 서버에서 이미 변환된 데이터 수신:", parsedData);
+                        } 
+                        // 만약 서버가 파싱에 실패해서 포장지(res.text) 채로 보냈다면 여기서 깐다!
+                        else if (res.text) {
+                            let cleanText = res.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+                            let jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                let safeJsonStr = jsonMatch[0].replace(/[\n\r\t]+/g, ' ').replace(/,\s*([}\]])/g, '$1');
+                                try {
+                                    parsedData = JSON.parse(safeJsonStr);
+                                } catch (e) {
+                                    parsedData = new Function("return " + safeJsonStr)();
+                                }
+                            } else {
+                                throw new Error("JSON 형식을 찾을 수 없습니다.");
                             }
-                            
-                            // 4. 데이터 폼에 입력
-                            setFormData(prev => ({ 
-                                ...prev, 
-                                awards: parsedData.awards || prev.awards,
-                                actors: needActors ? (finalActors || prev.actors) : prev.actors,
-                                boxOffice: needBoxOffice ? (parsedData.boxOffice || prev.boxOffice) : prev.boxOffice
-                            }));
-                            
-                            showToast("✨ AI 데이터 보완 완료!");
                         } else {
-                            throw new Error("중괄호 {} 로 묶인 JSON 형식을 찾을 수 없습니다.");
+                            throw new Error("데이터가 비어있습니다.");
                         }
+                        
+                        // 🛡️ 배우 이름이 서랍장(배열)으로 왔을 때 텍스트로 풀어주는 방어막
+                        let finalActors = parsedData.actors;
+                        if (Array.isArray(finalActors)) {
+                            finalActors = finalActors.join(", ");
+                        }
+                        
+                        // ✨ 화면 폼에 데이터 꽂아넣기!
+                        setFormData(prev => ({ 
+                            ...prev, 
+                            awards: parsedData.awards || prev.awards,
+                            actors: needActors ? (finalActors || prev.actors) : prev.actors,
+                            boxOffice: needBoxOffice ? (parsedData.boxOffice || prev.boxOffice) : prev.boxOffice
+                        }));
+                        
+                        showToast("✨ AI 데이터 보완 완료!");
                     } catch (e) {
                         console.error("AI 파싱 최종 에러:", e);
-                        // 🔥 에러가 나면 무슨 글자 때문인지 화면에 그대로 띄워줍니다.
                         showToast(`⚠️ 파싱 실패: ${e.message}`);
                     }
                 }
@@ -2198,6 +2199,7 @@
     </script>
 </body>
 </html>
+
 
 
 
