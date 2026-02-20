@@ -884,25 +884,25 @@
                 } else {
                     try {
                         const text = res.text || "";
-                        console.log("🤖 AI 원본 응답:", text); // 개발자도구 확인용
+                        console.log("🤖 AI 원본 응답:", text); // F12 콘솔 확인용
                         
-                        // 1. 마크다운 찌꺼기 제거 (대소문자 무시)
+                        // 1. 마크다운 찌꺼기 제거
                         const cleanText = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-                        
-                        // 2. 괄호 {} 부분만 정확히 추출
                         const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
                         
                         if (jsonMatch) {
                             let safeJsonStr = jsonMatch[0];
-                            let parsedData = {};
                             
-                            // 🔥 [핵심 방어] 깐깐한 JSON.parse가 실패해도 강제로 읽어내는 마법의 코드
-                            try {
-                                parsedData = JSON.parse(safeJsonStr);
-                            } catch (parseError) {
-                                console.warn("표준 파싱 실패, 유연한 파싱 시도...");
-                                parsedData = new Function("return " + safeJsonStr)();
-                            }
+                            // 🔥 [무적의 방어 로직] 
+                            // AI가 넣은 모든 엔터(\n), 탭(\t), 숨겨진 특수 제어문자를 스페이스(공백)로 치환합니다.
+                            // 이렇게 하면 문자열 중간에 엔터가 있어도 한 줄로 예쁘게 펴져서 에러가 절대 나지 않습니다.
+                            safeJsonStr = safeJsonStr.replace(/[\n\r\t]+/g, ' ');
+                            
+                            // 혹시 모를 마지막 쉼표(Trailing Comma) 제거
+                            safeJsonStr = safeJsonStr.replace(/,\s*([}\]])/g, '$1');
+                            
+                            // 2. 평평하게 다림질된 문자열을 안전하게 파싱
+                            const parsedData = JSON.parse(safeJsonStr);
                             
                             // 3. 배우 이름이 배열 [ ] 로 오면 문자열로 합치기
                             let finalActors = parsedData.actors;
@@ -910,7 +910,7 @@
                                 finalActors = finalActors.join(", ");
                             }
                             
-                            // 4. 필드 매핑 및 업데이트 (필드명 완벽 일치)
+                            // 4. 데이터 폼에 입력
                             setFormData(prev => ({ 
                                 ...prev, 
                                 awards: parsedData.awards || prev.awards,
@@ -920,11 +920,12 @@
                             
                             showToast("✨ AI 데이터 보완 완료!");
                         } else {
-                            throw new Error("JSON 형식을 찾을 수 없습니다.");
+                            throw new Error("중괄호 {} 로 묶인 JSON 형식을 찾을 수 없습니다.");
                         }
                     } catch (e) {
                         console.error("AI 파싱 최종 에러:", e);
-                        showToast(`⚠️ 파싱 실패: 데이터를 읽을 수 없습니다.`);
+                        // 🔥 에러가 나면 무슨 글자 때문인지 화면에 그대로 띄워줍니다.
+                        showToast(`⚠️ 파싱 실패: ${e.message}`);
                     }
                 }
                 setIsAiLoading(false);
@@ -2197,6 +2198,7 @@
     </script>
 </body>
 </html>
+
 
 
 
